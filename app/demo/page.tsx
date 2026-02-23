@@ -7,6 +7,7 @@ import { BatchSummary } from '@/components/batch-summary';
 import { ResultsDisplay } from '@/components/results-display';
 import { parseInput, validatePaymentInstructions } from '@/lib/stellar';
 import type { PaymentInstruction, BatchResult } from '@/lib/stellar/types';
+import { useBatchHistory } from '@/hooks/use-batch-history';
 
 type PageState = 'upload' | 'preview' | 'executing' | 'results';
 
@@ -17,6 +18,7 @@ export default function Home() {
   const [result, setResult] = useState<BatchResult | null>(null);
   const [error, setError] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
+  const { saveResult } = useBatchHistory();
 
   const handleFileSelect = async (file: File, format: 'json' | 'csv') => {
     try {
@@ -62,6 +64,7 @@ export default function Home() {
 
       const batchResult = await response.json();
       setResult(batchResult);
+      saveResult(batchResult);
       setState('results');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Batch submission failed');
@@ -76,6 +79,13 @@ export default function Home() {
     setResult(null);
     setError('');
     setState('upload');
+  };
+
+  const handleRetry = (failedPayments: PaymentInstruction[]) => {
+    setPayments(failedPayments);
+    setResult(null);
+    setError('');
+    setState('preview');
   };
 
   return (
@@ -169,7 +179,7 @@ export default function Home() {
           <div className="space-y-6">
             <div className="bg-card border border-border rounded-lg p-6">
               <h2 className="text-xl font-semibold mb-4">Batch Results</h2>
-              <ResultsDisplay result={result} />
+              <ResultsDisplay result={result} onRetry={handleRetry} />
             </div>
 
             <Button

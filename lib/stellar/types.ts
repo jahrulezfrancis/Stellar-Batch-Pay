@@ -28,11 +28,13 @@ export interface PaymentResult {
 }
 
 export interface BatchResult {
+  batchId: string;
   totalRecipients: number;
   totalAmount: string;
   totalTransactions: number;
   network: 'testnet' | 'mainnet';
   timestamp: string;
+  submittedAt?: string;
   results: PaymentResult[];
   summary: {
     successful: number;

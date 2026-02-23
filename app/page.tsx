@@ -8,12 +8,14 @@ import Link from "next/link"
 import BlockchainFeaturesSection from "@/components/blockchainfeatures-section"
 import CryptoPaymentSection from "@/components/cryptopay-section"
 import { Navbar } from "@/components/landing/navbar"
+import { ProcessSection } from "@/components/landing/process-section"
 
 export default function LandingPage() {
     return (
         <main className="min-h-screen bg-background text-foreground flex flex-col">
             <Navbar />
             <Hero />
+            <ProcessSection />
             <HowItWorks />
             <FeatureSection />
             <BlockchainFeaturesSection/>
