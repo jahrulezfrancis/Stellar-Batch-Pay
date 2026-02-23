@@ -5,6 +5,7 @@ import { HowItWorks } from "@/components/how-it-works"
 import { CtaSection } from "@/components/cta-section"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
+import BlockchainFeaturesSection from "@/components/blockchainfeatures-section"
 import CryptoPaymentSection from "@/components/cryptopay-section"
 import { Navbar } from "@/components/landing/navbar"
 
@@ -15,6 +16,7 @@ export default function LandingPage() {
             <Hero />
             <HowItWorks />
             <FeatureSection />
+            <BlockchainFeaturesSection/>
             <CryptoPaymentSection />
             <CtaSection />
 
