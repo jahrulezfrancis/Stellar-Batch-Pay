@@ -1,91 +1,161 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { FileUpload } from '@/components/file-upload';
-import { BatchSummary } from '@/components/batch-summary';
-import { ResultsDisplay } from '@/components/results-display';
-import { parseInput, validatePaymentInstructions } from '@/lib/stellar';
-import type { PaymentInstruction, BatchResult } from '@/lib/stellar/types';
-import { useBatchHistory } from '@/hooks/use-batch-history';
+import { useState, useEffect, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { FileUpload } from "@/components/file-upload";
+import { BatchSummary } from "@/components/batch-summary";
+import { ResultsDisplay } from "@/components/results-display";
+import { JobProgress } from "@/components/job-progress";
+import { parseInput, validatePaymentInstructions } from "@/lib/stellar";
+import type {
+  PaymentInstruction,
+  BatchResult,
+  JobStatus,
+} from "@/lib/stellar/types";
+import { useBatchHistory } from "@/hooks/use-batch-history";
 
-type PageState = 'upload' | 'preview' | 'executing' | 'results';
+type PageState = "upload" | "preview" | "polling" | "results";
+
+interface PollResponse {
+  jobId: string;
+  status: JobStatus;
+  totalBatches: number;
+  completedBatches: number;
+  totalPayments: number;
+  network: "testnet" | "mainnet";
+  result?: BatchResult;
+  error?: string;
+}
+
+const POLL_INTERVAL_MS = 2000;
 
 export default function Home() {
-  const [state, setState] = useState<PageState>('upload');
+  const [state, setState] = useState<PageState>("upload");
   const [payments, setPayments] = useState<PaymentInstruction[]>([]);
-  const [network, setNetwork] = useState<'testnet' | 'mainnet'>('testnet');
+  const [network, setNetwork] = useState<"testnet" | "mainnet">("testnet");
   const [result, setResult] = useState<BatchResult | null>(null);
-  const [error, setError] = useState<string>('');
+  const [error, setError] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
+
+  // Async job tracking
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [pollData, setPollData] = useState<PollResponse | null>(null);
+
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { saveResult } = useBatchHistory();
 
-  const handleFileSelect = async (file: File, format: 'json' | 'csv') => {
+  /** Stop the polling interval if one is running. */
+  const stopPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  };
+
+  /** Poll the status endpoint and handle terminal states. */
+  const pollStatus = async (id: string) => {
     try {
-      setError('');
+      const res = await fetch(`/api/batch-status/${id}`);
+      if (!res.ok) {
+        throw new Error(`Status check failed (${res.status})`);
+      }
+      const data: PollResponse = await res.json();
+      setPollData(data);
+
+      if (data.status === "completed" && data.result) {
+        stopPolling();
+        saveResult(data.result);
+        setResult(data.result);
+        setState("results");
+        setIsLoading(false);
+      } else if (data.status === "failed") {
+        stopPolling();
+        setError(data.error ?? "Batch processing failed");
+        setState("preview");
+        setIsLoading(false);
+      }
+    } catch (err) {
+      // Don't stop polling on transient network errors — just log
+      console.warn("Poll error (will retry):", err);
+    }
+  };
+
+  /** Cleanup on unmount. */
+  useEffect(() => {
+    return () => stopPolling();
+  }, []);
+
+  const handleFileSelect = async (file: File, format: "json" | "csv") => {
+    try {
+      setError("");
       const content = await file.text();
       const parsed = parseInput(content, format);
 
-      // Validate payments
       const validation = validatePaymentInstructions(parsed);
       if (!validation.valid) {
         const errors = Array.from(validation.errors.values()).slice(0, 3);
-        throw new Error(`Invalid payments: ${errors.join(', ')}`);
+        throw new Error(`Invalid payments: ${errors.join(", ")}`);
       }
 
       setPayments(parsed);
-      setState('preview');
+      setState("preview");
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to parse file');
+      setError(err instanceof Error ? err.message : "Failed to parse file");
     }
   };
 
   const handleExecute = async () => {
     try {
-      setError('');
+      setError("");
       setIsLoading(true);
-      setState('executing');
+      setPollData(null);
+      setJobId(null);
 
-      const response = await fetch('/api/batch-submit', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          payments,
-          network,
-        }),
+      const response = await fetch("/api/batch-submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ payments, network }),
       });
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Batch submission failed');
+        throw new Error(data.error || "Batch submission failed");
       }
 
-      const batchResult = await response.json();
-      setResult(batchResult);
-      saveResult(batchResult);
-      setState('results');
+      const { jobId: newJobId } = await response.json();
+      setJobId(newJobId);
+      setState("polling");
+
+      // Start polling immediately, then on interval
+      await pollStatus(newJobId);
+      pollIntervalRef.current = setInterval(
+        () => pollStatus(newJobId),
+        POLL_INTERVAL_MS,
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Batch submission failed');
-      setState('preview');
-    } finally {
+      setError(err instanceof Error ? err.message : "Batch submission failed");
+      setState("preview");
       setIsLoading(false);
     }
   };
 
   const handleReset = () => {
+    stopPolling();
     setPayments([]);
     setResult(null);
-    setError('');
-    setState('upload');
+    setError("");
+    setJobId(null);
+    setPollData(null);
+    setState("upload");
+    setIsLoading(false);
   };
 
   const handleRetry = (failedPayments: PaymentInstruction[]) => {
+    stopPolling();
     setPayments(failedPayments);
     setResult(null);
-    setError('');
-    setState('preview');
+    setError("");
+    setState("preview");
   };
 
   return (
@@ -94,7 +164,8 @@ export default function Home() {
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-2">Stellar BatchPay</h1>
           <p className="text-muted-foreground">
-            Send multiple payments on the Stellar blockchain—fast, simple, and secure. Process bulk payments in seconds.
+            Send multiple payments on the Stellar blockchain—fast, simple, and
+            secure. Process bulk payments in seconds.
           </p>
         </div>
 
@@ -105,16 +176,20 @@ export default function Home() {
           </div>
         )}
 
-        {state === 'upload' && (
+        {/* ── Upload ────────────────────────────────────────────────── */}
+        {state === "upload" && (
           <div className="space-y-6">
             <div className="bg-card border border-border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">Upload Payment File</h2>
+              <h2 className="text-xl font-semibold mb-4">
+                Upload Payment File
+              </h2>
               <FileUpload onFileSelect={handleFileSelect} />
             </div>
           </div>
         )}
 
-        {state === 'preview' && (
+        {/* ── Preview ───────────────────────────────────────────────── */}
+        {state === "preview" && (
           <div className="space-y-6">
             <div className="bg-card border border-border rounded-lg p-6">
               <h2 className="text-xl font-semibold mb-4">Batch Preview</h2>
@@ -124,14 +199,19 @@ export default function Home() {
             <div className="bg-card border border-border rounded-lg p-6">
               <h3 className="font-semibold mb-4">Network Selection</h3>
               <div className="flex gap-4">
-                {(['testnet', 'mainnet'] as const).map((net) => (
-                  <label key={net} className="flex items-center gap-2 cursor-pointer">
+                {(["testnet", "mainnet"] as const).map((net) => (
+                  <label
+                    key={net}
+                    className="flex items-center gap-2 cursor-pointer"
+                  >
                     <input
                       type="radio"
                       name="network"
                       value={net}
                       checked={network === net}
-                      onChange={(e) => setNetwork(e.target.value as 'testnet' | 'mainnet')}
+                      onChange={(e) =>
+                        setNetwork(e.target.value as "testnet" | "mainnet")
+                      }
                       className="w-4 h-4"
                     />
                     <span className="capitalize text-foreground">{net}</span>
@@ -139,7 +219,8 @@ export default function Home() {
                 ))}
               </div>
               <p className="text-xs text-muted-foreground mt-3">
-                Make sure your account has sufficient balance on the selected network.
+                Make sure your account has sufficient balance on the selected
+                network.
               </p>
             </div>
 
@@ -149,43 +230,55 @@ export default function Home() {
                 disabled={isLoading}
                 className="flex-1"
               >
-                {isLoading ? 'Submitting...' : 'Submit Batch'}
+                {isLoading ? "Submitting…" : "Submit Batch"}
               </Button>
-              <Button
-                onClick={handleReset}
-                variant="outline"
-              >
+              <Button onClick={handleReset} variant="outline">
                 Change File
               </Button>
             </div>
           </div>
         )}
 
-        {state === 'executing' && (
+        {/* ── Polling / Progress ────────────────────────────────────── */}
+        {state === "polling" && (
           <div className="space-y-6">
             <div className="bg-card border border-border rounded-lg p-6">
-              <div className="text-center">
-                <div className="inline-block animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mb-4" />
-                <p className="text-lg font-semibold">Submitting batch to Stellar...</p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  This may take a moment. Do not close this window.
+              <h2 className="text-xl font-semibold mb-6">Processing Batch</h2>
+
+              <JobProgress
+                status={pollData?.status ?? "queued"}
+                completedBatches={pollData?.completedBatches ?? 0}
+                totalBatches={pollData?.totalBatches ?? 0}
+                totalPayments={payments.length}
+              />
+
+              {jobId && (
+                <p className="text-xs text-muted-foreground mt-6 font-mono">
+                  Job ID: {jobId}
                 </p>
-              </div>
+              )}
+
+              <p className="text-xs text-muted-foreground mt-2">
+                You can safely leave this page. Come back and paste your Job ID
+                to resume tracking. (Coming soon)
+              </p>
             </div>
+
+            <Button onClick={handleReset} variant="outline" className="w-full">
+              Cancel & Start Over
+            </Button>
           </div>
         )}
 
-        {state === 'results' && result && (
+        {/* ── Results ───────────────────────────────────────────────── */}
+        {state === "results" && result && (
           <div className="space-y-6">
             <div className="bg-card border border-border rounded-lg p-6">
               <h2 className="text-xl font-semibold mb-4">Batch Results</h2>
               <ResultsDisplay result={result} onRetry={handleRetry} />
             </div>
 
-            <Button
-              onClick={handleReset}
-              className="w-full"
-            >
+            <Button onClick={handleReset} className="w-full">
               Submit New Batch
             </Button>
           </div>

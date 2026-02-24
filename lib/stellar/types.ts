@@ -2,6 +2,21 @@
  * Type definitions for the Stellar bulk payment system
  */
 
+export type JobStatus = "queued" | "processing" | "completed" | "failed";
+
+export interface JobState {
+  jobId: string;
+  status: JobStatus;
+  totalBatches: number;
+  completedBatches: number;
+  payments: PaymentInstruction[];
+  network: "testnet" | "mainnet";
+  result?: BatchResult;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PaymentInstruction {
   address: string;
   amount: string;
@@ -22,7 +37,7 @@ export interface PaymentResult {
   recipient: string;
   amount: string;
   asset: string;
-  status: 'success' | 'failed';
+  status: "success" | "failed";
   transactionHash?: string;
   error?: string;
 }
@@ -32,7 +47,7 @@ export interface BatchResult {
   totalRecipients: number;
   totalAmount: string;
   totalTransactions: number;
-  network: 'testnet' | 'mainnet';
+  network: "testnet" | "mainnet";
   timestamp: string;
   submittedAt?: string;
   results: PaymentResult[];
@@ -44,6 +59,6 @@ export interface BatchResult {
 
 export interface BatchConfig {
   maxOperationsPerTransaction: number;
-  network: 'testnet' | 'mainnet';
+  network: "testnet" | "mainnet";
   secretKey: string;
 }

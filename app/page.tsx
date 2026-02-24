@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { Hero } from "@/components/landing/Hero";
 import { LandingNavbar } from "@/components/landing/LandingNavbar";
 import { FeatureSection } from "@/components/feature-section";
@@ -25,6 +26,35 @@ export default function LandingPage() {
       <PaymentWorkflowsSection />
       <CryptoPaymentSection />
       <CtaSection />
+=======
+import { Hero } from "@/components/landing/Hero"
+import { LandingNavbar } from "@/components/landing/LandingNavbar"
+import { FeatureSection } from "@/components/feature-section"
+import { HowItWorks } from "@/components/how-it-works"
+import { CtaSection } from "@/components/cta-section"
+import { Button } from "@/components/ui/button"
+import Link from "next/link"
+import BlockchainFeaturesSection from "@/components/blockchainfeatures-section"
+import CryptoPaymentSection from "@/components/cryptopay-section"
+import { Navbar } from "@/components/landing/navbar"
+import { ProcessSection } from "@/components/landing/process-section"
+import { SecuritySection } from "@/components/landing/security-section"
+import { WhyTeamsChooseBatchPay } from "@/components/landing/WhyTeamsChooseBatchPay"
+
+export default function LandingPage() {
+    return (
+        <main className="min-h-screen bg-background text-foreground flex flex-col">
+            <Navbar />
+            <Hero />
+            <ProcessSection />
+            <WhyTeamsChooseBatchPay />
+            <HowItWorks />
+            <FeatureSection />
+            <BlockchainFeaturesSection />
+            <SecuritySection />
+            <CryptoPaymentSection />
+            <CtaSection />
+>>>>>>> main
 
       <footer className="py-12 border-t mt-auto bg-secondary/10">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
