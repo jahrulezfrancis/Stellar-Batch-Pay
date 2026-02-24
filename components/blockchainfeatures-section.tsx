@@ -32,7 +32,7 @@ const features = [
 export default function BlockchainFeaturesSection() {
   return (
     <section
-      style={{ backgroundColor: "#0A0E1A", width: "100%",border:"1px solid #E5E7EB " }}
+      style={{ backgroundColor: "#0A0E1A", width: "100%", }}
       className="py-16 px-4 sm:px-6 lg:px-8"
     >
       {/* Header */}

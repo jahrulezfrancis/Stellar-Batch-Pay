@@ -8,7 +8,10 @@ export function Navbar() {
   const [open, setOpen] = useState(false)
 
   return (
-    <nav className="border-b backdrop-blur-md sticky top-0 z-50 bg-[#121827]">
+    <nav className=" backdrop-blur-md sticky top-0 z-50 bg-[#121827]" style={{
+        borderBottom: "1px solid #252B3D",
+
+    }}>
       <div className="container mx-auto px-4">
         <div className="h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -20,7 +23,7 @@ export function Navbar() {
             <Link href="#features" className="text-sm font-light text-[#E5E7EB] hover:text-[#E5E7EB]/90 transition-colors">Features</Link>
             <Link href="#docs" className="text-sm font-light text-[#E5E7EB] hover:text-[#E5E7EB]/90 transition-colors">Documentation</Link>
             <Link href="#pricing" className="text-sm font-light text-[#E5E7EB] hover:text-[#E5E7EB]/90 transition-colors">Pricing</Link>
-            <Link href="#about" className="text-sm font-light text-[#E5E7EB] hover:text-[#E5E7EB]/90 transition-colors">About</Link>
+            <Link href="/about" className="text-sm font-light text-[#E5E7EB] hover:text-[#E5E7EB]/90 transition-colors">About</Link>
             <Link href="#contact" className="text-sm font-light text-[#E5E7EB] hover:text-[#E5E7EB]/90 transition-colors">Contact</Link>
           </div>
 
@@ -49,7 +52,7 @@ export function Navbar() {
             <Link href="#features" className="px-2 py-2 rounded text-[#E5E7EB] hover:bg-secondary/10">Features</Link>
             <Link href="#docs" className="px-2 py-2 rounded text-[#E5E7EB] hover:bg-secondary/10">Documentation</Link>
             <Link href="#pricing" className="px-2 py-2 rounded text-[#E5E7EB] hover:bg-secondary/10">Pricing</Link>
-            <Link href="#about" className="px-2 py-2 rounded text-[#E5E7EB] hover:bg-secondary/10">About</Link>
+            <Link href="/about" className="px-2 py-2 rounded text-[#E5E7EB] hover:bg-secondary/10">About</Link>
             <Link href="#contact" className="px-2 py-2 rounded text-[#E5E7EB] hover:bg-secondary/10">Contact</Link>
             <Link href="https://github.com/jahrulezfrancis/Stellar-Batch-Pay" target="_blank" className="px-2 py-2 rounded text-[#E5E7EB] hover:bg-secondary/10">GitHub</Link>
           </div>

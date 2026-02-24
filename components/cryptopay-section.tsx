@@ -32,7 +32,7 @@ const challenges = [
 export default function CryptoPaymentSection() {
   return (
     <section
-      style={{ backgroundColor: "#121827", width: "100%",border: "1px solid #E5E7EB" }}
+      style={{ backgroundColor: "#121827", width: "100%", }}
       className="py-16 px-4 sm:px-6 lg:px-8"
     >
       {/* Header */}

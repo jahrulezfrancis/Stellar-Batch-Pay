@@ -49,7 +49,7 @@ const itemVariants = {
 
 export function ProcessSection() {
   return (
-    <section className="py-24 bg-[#0A0E1A] text-white overflow-hidden border-t border-[#E5E7EB1A]">
+    <section className="py-24 bg-[#0A0E1A] text-white overflow-hidden ">
       <div className="container px-4 md:px-6 mx-auto">
         <div className="text-center max-w-3xl mx-auto mb-16">
           <motion.h2
