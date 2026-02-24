@@ -1,15 +1,19 @@
 /**
- * API route for submitting batch payments to Stellar
+ * API route for submitting batch payments to Stellar (async / non-blocking).
+ *
+ * Returns 202 Accepted immediately with a jobId.
+ * Frontend polls /api/batch-status/:jobId for progress.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { StellarService } from '@/lib/stellar/server';
-import { validatePaymentInstructions } from '@/lib/stellar';
-import type { PaymentInstruction } from '@/lib/stellar/types';
+import { NextRequest, NextResponse } from "next/server";
+import { validatePaymentInstructions } from "@/lib/stellar";
+import { createJob } from "@/lib/job-store";
+import { processJobInBackground } from "@/lib/stellar/batch-worker";
+import type { PaymentInstruction } from "@/lib/stellar/types";
 
 interface RequestBody {
   payments: PaymentInstruction[];
-  network: 'testnet' | 'mainnet';
+  network: "testnet" | "mainnet";
 }
 
 export async function POST(request: NextRequest) {
@@ -18,27 +22,27 @@ export async function POST(request: NextRequest) {
     const secretKey = process.env.STELLAR_SECRET_KEY;
     if (!secretKey) {
       return NextResponse.json(
-        { error: 'STELLAR_SECRET_KEY is not configured' },
-        { status: 500 }
+        { error: "STELLAR_SECRET_KEY is not configured" },
+        { status: 500 },
       );
     }
 
     // Parse request body
-    const body = await request.json() as RequestBody;
+    const body = (await request.json()) as RequestBody;
     const { payments, network } = body;
 
     // Validate input
     if (!Array.isArray(payments) || payments.length === 0) {
       return NextResponse.json(
-        { error: 'Invalid request: payments must be a non-empty array' },
-        { status: 400 }
+        { error: "Invalid request: payments must be a non-empty array" },
+        { status: 400 },
       );
     }
 
-    if (!['testnet', 'mainnet'].includes(network)) {
+    if (!["testnet", "mainnet"].includes(network)) {
       return NextResponse.json(
         { error: "Invalid network: must be 'testnet' or 'mainnet'" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -49,28 +53,37 @@ export async function POST(request: NextRequest) {
         .map(([idx, err]) => `Row ${idx}: ${err}`)
         .slice(0, 5);
       return NextResponse.json(
-        { error: `Invalid payment instructions: ${errors.join('; ')}` },
-        { status: 400 }
+        { error: `Invalid payment instructions: ${errors.join("; ")}` },
+        { status: 400 },
       );
     }
 
-    // Create Stellar service and submit batch
-    const service = new StellarService({
-      secretKey,
-      network,
-      maxOperationsPerTransaction: 100,
-    });
+    // Create a job in the store — returns a UUID immediately
+    const jobId = createJob(payments, network);
 
-    const result = await service.submitBatch(payments);
+    // Fire-and-forget: start background processing without awaiting
+    void processJobInBackground(jobId, payments, network, secretKey);
 
-    return NextResponse.json(result);
-  } catch (error) {
-    console.error('Batch submission error:', error);
+    // Return 202 Accepted with the job ID for polling
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : 'Internal server error',
+        jobId,
+        status: "queued",
+        totalPayments: payments.length,
+        message:
+          "Batch queued for processing. Poll /api/batch-status/" +
+          jobId +
+          " for progress.",
       },
-      { status: 500 }
+      { status: 202 },
+    );
+  } catch (error) {
+    console.error("Batch submission error:", error);
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
+      { status: 500 },
     );
   }
 }
