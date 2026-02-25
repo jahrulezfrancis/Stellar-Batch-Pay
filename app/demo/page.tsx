@@ -6,86 +6,40 @@ import { FileUpload } from "@/components/file-upload";
 import { BatchSummary } from "@/components/batch-summary";
 import { ResultsDisplay } from "@/components/results-display";
 import { JobProgress } from "@/components/job-progress";
+import { ConnectWalletButton } from "@/components/connect-wallet-button";
+import { useFreighter } from "@/hooks/use-freighter";
 import { parseInput, parseFileStream, validatePaymentInstructions } from "@/lib/stellar";
 import type {
   PaymentInstruction,
   BatchResult,
+  PaymentResult,
   JobStatus,
 } from "@/lib/stellar/types";
 import { useBatchHistory } from "@/hooks/use-batch-history";
 
-type PageState = "upload" | "parsing" | "preview" | "polling" | "results";
+type PageState = "upload" | "parsing" | "preview" | "signing" | "results";
 
-interface PollResponse {
-  jobId: string;
-  status: JobStatus;
-  totalBatches: number;
-  completedBatches: number;
-  totalPayments: number;
-  network: "testnet" | "mainnet";
-  result?: BatchResult;
-  error?: string;
-}
-
-const POLL_INTERVAL_MS = 2000;
+const MAX_OPS = 100;
 
 export default function Home() {
   const [state, setState] = useState<PageState>("upload");
   const [payments, setPayments] = useState<PaymentInstruction[]>([]);
   const [network, setNetwork] = useState<"testnet" | "mainnet">("testnet");
   const [result, setResult] = useState<BatchResult | null>(null);
-  const [error, setError] = useState<string>("");
+  const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const [parsedCount, setParsedCount] = useState<number>(0);
 
-  // Async job tracking
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [pollData, setPollData] = useState<PollResponse | null>(null);
+  // Signing progress
+  const [signingProgress, setSigningProgress] = useState({
+    current: 0,
+    total: 0,
+    phase: "building" as "building" | "signing" | "submitting",
+  });
 
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { saveResult } = useBatchHistory();
-
-  /** Stop the polling interval if one is running. */
-  const stopPolling = () => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-  };
-
-  /** Poll the status endpoint and handle terminal states. */
-  const pollStatus = async (id: string) => {
-    try {
-      const res = await fetch(`/api/batch-status/${id}`);
-      if (!res.ok) {
-        throw new Error(`Status check failed (${res.status})`);
-      }
-      const data: PollResponse = await res.json();
-      setPollData(data);
-
-      if (data.status === "completed" && data.result) {
-        stopPolling();
-        saveResult(data.result);
-        setResult(data.result);
-        setState("results");
-        setIsLoading(false);
-      } else if (data.status === "failed") {
-        stopPolling();
-        setError(data.error ?? "Batch processing failed");
-        setState("preview");
-        setIsLoading(false);
-      }
-    } catch (err) {
-      // Don't stop polling on transient network errors — just log
-      console.warn("Poll error (will retry):", err);
-    }
-  };
-
-  /** Cleanup on unmount. */
-  useEffect(() => {
-    return () => stopPolling();
-  }, []);
+  const { publicKey, signTx } = useFreighter();
 
   const handleFileSelect = async (file: File, format: "json" | "csv") => {
     try {
@@ -128,54 +82,183 @@ export default function Home() {
     }
   };
 
+  /**
+   * New wallet-based execute flow:
+   * 1. POST /api/batch-build → get unsigned XDRs
+   * 2. Sign each XDR via Freighter
+   * 3. POST /api/batch-submit-signed → submit each signed XDR
+   */
   const handleExecute = async () => {
+    if (!publicKey) {
+      setError("Please connect your Freighter wallet first.");
+      return;
+    }
+
     try {
       setError("");
       setIsLoading(true);
-      setPollData(null);
-      setJobId(null);
+      setState("signing");
+      setSigningProgress({ current: 0, total: 0, phase: "building" });
 
-      const response = await fetch("/api/batch-submit", {
+      // ── Step 1: Build unsigned XDRs ──────────────────────────
+      const buildRes = await fetch("/api/batch-build", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ payments, network }),
+        body: JSON.stringify({ payments, network, publicKey }),
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Batch submission failed");
+      if (!buildRes.ok) {
+        const data = await buildRes.json();
+        throw new Error(data.error || "Failed to build transactions");
       }
 
-      const { jobId: newJobId } = await response.json();
-      setJobId(newJobId);
-      setState("polling");
+      const { xdrs, batchCount } = await buildRes.json();
+      setSigningProgress({ current: 0, total: batchCount, phase: "signing" });
 
-      // Start polling immediately, then on interval
-      await pollStatus(newJobId);
-      pollIntervalRef.current = setInterval(
-        () => pollStatus(newJobId),
-        POLL_INTERVAL_MS,
+      // ── Step 2+3: Sign and submit each XDR ──────────────────
+      const allResults: PaymentResult[] = [];
+      let successCount = 0;
+      let failCount = 0;
+      const startTime = new Date().toISOString();
+
+      // Calculate payments per batch for result attribution
+      const paymentsPerBatch = Math.min(MAX_OPS, payments.length);
+
+      for (let i = 0; i < xdrs.length; i++) {
+        const xdr = xdrs[i];
+        const batchStart = i * paymentsPerBatch;
+        const batchEnd = Math.min(batchStart + paymentsPerBatch, payments.length);
+        const batchPayments = payments.slice(batchStart, batchEnd);
+
+        try {
+          // Sign via Freighter
+          setSigningProgress((prev) => ({ ...prev, phase: "signing", current: i }));
+          const signedXdr = await signTx(xdr, network);
+
+          // Submit the signed transaction
+          setSigningProgress((prev) => ({ ...prev, phase: "submitting" }));
+          const submitRes = await fetch("/api/batch-submit-signed", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ signedXdr, network }),
+          });
+
+          const submitData = await submitRes.json();
+
+          if (submitData.success) {
+            for (const payment of batchPayments) {
+              allResults.push({
+                recipient: payment.address,
+                amount: payment.amount,
+                asset: payment.asset,
+                status: "success",
+                transactionHash: submitData.hash,
+              });
+              successCount++;
+            }
+          } else {
+            for (const payment of batchPayments) {
+              allResults.push({
+                recipient: payment.address,
+                amount: payment.amount,
+                asset: payment.asset,
+                status: "failed",
+                error: submitData.error || "Submission failed",
+              });
+              failCount++;
+            }
+          }
+        } catch (err) {
+          // User rejected signing or other error
+          const errMsg = err instanceof Error ? err.message : "Signing failed";
+
+          // If user rejected, stop the loop
+          if (errMsg.toLowerCase().includes("user") || errMsg.toLowerCase().includes("reject") || errMsg.toLowerCase().includes("cancel")) {
+            for (const payment of batchPayments) {
+              allResults.push({
+                recipient: payment.address,
+                amount: payment.amount,
+                asset: payment.asset,
+                status: "failed",
+                error: "Signing cancelled by user",
+              });
+              failCount++;
+            }
+            // Mark remaining batches as cancelled too
+            for (let j = i + 1; j < xdrs.length; j++) {
+              const rStart = j * paymentsPerBatch;
+              const rEnd = Math.min(rStart + paymentsPerBatch, payments.length);
+              for (const payment of payments.slice(rStart, rEnd)) {
+                allResults.push({
+                  recipient: payment.address,
+                  amount: payment.amount,
+                  asset: payment.asset,
+                  status: "failed",
+                  error: "Signing cancelled by user",
+                });
+                failCount++;
+              }
+            }
+            break;
+          }
+
+          for (const payment of batchPayments) {
+            allResults.push({
+              recipient: payment.address,
+              amount: payment.amount,
+              asset: payment.asset,
+              status: "failed",
+              error: errMsg,
+            });
+            failCount++;
+          }
+        }
+
+        setSigningProgress((prev) => ({ ...prev, current: i + 1 }));
+      }
+
+      // ── Build final result ────────────────────────────────────
+      const totalAmount = payments.reduce(
+        (sum, p) => sum + parseFloat(p.amount),
+        0,
       );
+
+      const finalResult: BatchResult = {
+        batchId: `batch-${Date.now()}`,
+        totalRecipients: payments.length,
+        totalAmount: totalAmount.toString(),
+        totalTransactions: xdrs.length,
+        network,
+        timestamp: startTime,
+        submittedAt: new Date().toISOString(),
+        results: allResults,
+        summary: {
+          successful: successCount,
+          failed: failCount,
+        },
+      };
+
+      saveResult(finalResult);
+      setResult(finalResult);
+      setState("results");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Batch submission failed");
       setState("preview");
+    } finally {
       setIsLoading(false);
     }
   };
 
   const handleReset = () => {
-    stopPolling();
     setPayments([]);
     setResult(null);
     setError("");
-    setJobId(null);
-    setPollData(null);
     setState("upload");
     setIsLoading(false);
+    setSigningProgress({ current: 0, total: 0, phase: "building" });
   };
 
   const handleRetry = (failedPayments: PaymentInstruction[]) => {
-    stopPolling();
     setPayments(failedPayments);
     setResult(null);
     setError("");
@@ -189,8 +272,16 @@ export default function Home() {
           <h1 className="text-4xl font-bold mb-2">Stellar BatchPay</h1>
           <p className="text-muted-foreground">
             Send multiple payments on the Stellar blockchain—fast, simple, and
-            secure. Process bulk payments in seconds.
+            secure. Connect your Freighter wallet to sign transactions safely.
           </p>
+        </div>
+
+        {/* ── Wallet Connection ───────────────────────────────────── */}
+        <div className="mb-6 bg-card border border-border rounded-lg p-4 flex items-center justify-between">
+          <div className="text-sm text-muted-foreground">
+            {publicKey ? "Wallet connected" : "Connect your wallet to get started"}
+          </div>
+          <ConnectWalletButton />
         </div>
 
         {error && (
@@ -262,41 +353,87 @@ export default function Home() {
             <div className="flex gap-3">
               <Button
                 onClick={handleExecute}
-                disabled={isLoading}
+                disabled={isLoading || !publicKey}
                 className="flex-1"
+                title={!publicKey ? "Connect your Freighter wallet first" : undefined}
               >
-                {isLoading ? "Submitting…" : "Submit Batch"}
+                {isLoading
+                  ? "Processing…"
+                  : !publicKey
+                    ? "Connect Wallet to Submit"
+                    : "Sign & Submit Batch"}
               </Button>
               <Button onClick={handleReset} variant="outline">
                 Change File
               </Button>
             </div>
+
+            {!publicKey && (
+              <p className="text-xs text-center text-amber-400">
+                ⚠ You must connect your Freighter wallet before submitting.
+              </p>
+            )}
           </div>
         )}
 
-        {/* ── Polling / Progress ────────────────────────────────────── */}
-        {state === "polling" && (
+        {/* ── Signing / Progress ────────────────────────────────────── */}
+        {state === "signing" && (
           <div className="space-y-6">
             <div className="bg-card border border-border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-6">Processing Batch</h2>
+              <h2 className="text-xl font-semibold mb-6">
+                {signingProgress.phase === "building"
+                  ? "Building Transactions…"
+                  : signingProgress.phase === "signing"
+                    ? "Waiting for Signature…"
+                    : "Submitting to Network…"}
+              </h2>
 
-              <JobProgress
-                status={pollData?.status ?? "queued"}
-                completedBatches={pollData?.completedBatches ?? 0}
-                totalBatches={pollData?.totalBatches ?? 0}
-                totalPayments={payments.length}
-              />
-
-              {jobId && (
-                <p className="text-xs text-muted-foreground mt-6 font-mono">
-                  Job ID: {jobId}
-                </p>
+              {signingProgress.total > 0 && (
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm text-muted-foreground">
+                    <span>
+                      Batch {signingProgress.current} of {signingProgress.total}
+                    </span>
+                    <span>
+                      {Math.round(
+                        (signingProgress.current / signingProgress.total) * 100,
+                      )}
+                      %
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-500"
+                      style={{
+                        width: `${(signingProgress.current / signingProgress.total) * 100
+                          }%`,
+                      }}
+                    />
+                  </div>
+                </div>
               )}
 
-              <p className="text-xs text-muted-foreground mt-2">
-                You can safely leave this page. Come back and paste your Job ID
-                to resume tracking. (Coming soon)
-              </p>
+              {signingProgress.phase === "building" && (
+                <div className="mt-6 flex items-center justify-center gap-2 text-muted-foreground">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  <span className="text-sm">Building unsigned transactions…</span>
+                </div>
+              )}
+
+              {signingProgress.phase === "signing" && (
+                <div className="mt-6 p-4 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
+                  <p className="text-sm text-indigo-300 text-center">
+                    🔐 Please approve the transaction in your Freighter wallet
+                  </p>
+                </div>
+              )}
+
+              {signingProgress.phase === "submitting" && (
+                <div className="mt-6 flex items-center justify-center gap-2 text-muted-foreground">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  <span className="text-sm">Submitting signed transaction…</span>
+                </div>
+              )}
             </div>
 
             <Button onClick={handleReset} variant="outline" className="w-full">

@@ -62,3 +62,18 @@ export interface BatchConfig {
   network: "testnet" | "mainnet";
   secretKey: string;
 }
+
+/** Config for building unsigned transactions (wallet-signing flow) */
+export interface BuildBatchConfig {
+  maxOperationsPerTransaction: number;
+  network: "testnet" | "mainnet";
+  publicKey: string;
+}
+
+/** Result from the batch-build endpoint (unsigned XDRs) */
+export interface BuildBatchResult {
+  xdrs: string[];
+  batchCount: number;
+  network: "testnet" | "mainnet";
+  publicKey: string;
+}
