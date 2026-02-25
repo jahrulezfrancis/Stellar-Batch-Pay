@@ -30,7 +30,7 @@ export default function LandingPage() {
       <CryptoPaymentSection />
       <CtaSection />
 
-      <footer className="py-12 border-t mt-auto bg-secondary/10">
+      {/* <footer className="py-12 border-t mt-auto bg-secondary/10">
         <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="text-sm text-muted-foreground">
             © 2024 Stellar BatchPay. Open Source.
@@ -47,7 +47,7 @@ export default function LandingPage() {
             </Link>
           </div>
         </div>
-      </footer>
+      </footer> */}
     </main>
   );
 }
