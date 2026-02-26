@@ -1,13 +1,14 @@
 "use client"
 
 import { useState } from "react"
-import { Eye, EyeOff, Shield, Clock, BarChart3, Lock, Mail, ChevronRight } from "lucide-react"
+import { Eye, EyeOff, Shield, Clock, BarChart3, Lock, Mail, ChevronRight, Wallet, ShieldAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import Link from "next/link"
+import Image from "next/image"
 
 export default function SignInPage() {
   const [showPassword, setShowPassword] = useState(false)
@@ -16,27 +17,28 @@ export default function SignInPage() {
   const [rememberDevice, setRememberDevice] = useState(false)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br  from-[#030712] via-[#111827] to-[#030712] flex items-center justify-center p-4">
       <div className="w-full max-w-6xl mx-auto">
         <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
           
           {/* Left Section - Welcome */}
-          <div className="text-center lg:text-left space-y-8">
+          <div className="text-center lg:text-left space-y-8 max-h-screen">
             {/* Welcome Icon */}
-            <div className="flex justify-center lg:justify-start">
+            <div className="md:flex gap-5 justify-center lg:justify-start">
               <div className="w-20 h-20 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl flex items-center justify-center shadow-lg shadow-green-500/25">
                 <div className="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center">
-                  <div className="w-6 h-6 bg-white rounded-sm"></div>
+                 <Image src="/i.svg" alt="Stellar Batch Pay" width={40} height={40} />
                 </div>
               </div>
+               <h1 className="text-4xl lg:text-5xl font-bold text-white">
+                Welcome Back
+              </h1>
             </div>
 
             {/* Welcome Text */}
             <div className="space-y-4">
-              <h1 className="text-4xl lg:text-5xl font-bold text-white">
-                Welcome Back
-              </h1>
-              <p className="text-lg text-gray-300 max-w-md">
+             
+              <p className="text-lg text-[#E5E7EB] max-w-md">
                 Sign in to manage your batch cryptocurrency payments.
               </p>
             </div>
@@ -83,17 +85,17 @@ export default function SignInPage() {
             {/* Footer Note */}
             <div className="text-center lg:text-left">
               <p className="text-gray-500 text-xs">
-                Your credentials are encrypted and securely processed.
+                <span><Lock className="w-4 h-4 inline mr-1 fill-current" /></span>Your credentials are encrypted and securely processed.
               </p>
             </div>
           </div>
 
           {/* Right Section - Sign In Form */}
-          <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-8 lg:p-10 border border-gray-700/50 shadow-xl">
+          <div className="bg-gray-800/10 backdrop-blur-sm rounded-2xl p-8 lg:p-10 border border-gray-700/50 shadow-xl">
             <div className="space-y-6">
               {/* Form Header */}
-              <div className="text-center space-y-2">
-                <h2 className="text-3xl font-bold text-white">Sign In</h2>
+              <div className="text-left space-y-2">
+                <h2 className="text-[24px] font-bold text-white">Sign In</h2>
                 <p className="text-gray-400">
                   Access your payment dashboard and transaction history.
                 </p>
@@ -107,14 +109,14 @@ export default function SignInPage() {
                     Email Address
                   </Label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <Mail className="absolute left-3 top-4 h-5 w-5 text-gray-400" />
                     <Input
                       id="email"
                       type="email"
                       placeholder="you@example.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="pl-10 bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500/20"
+                      className="pl-10 h-[54px] bg-[#37415180]/50 border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500/20"
                     />
                   </div>
                 </div>
@@ -125,15 +127,15 @@ export default function SignInPage() {
                     Password
                   </Label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <Lock className="absolute left-3 top-4 h-5 w-5 text-gray-400" />
                     <Input
                       id="password"
                       type={showPassword ? "text" : "password"}
                       placeholder="Enter your password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="pl-10 pr-10 bg-gray-700/50 border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500/20"
-                    />
+                       className="pl-10 h-[54px] bg-[#37415180]/50 border-gray-600 text-white placeholder-gray-400 focus:border-green-500 focus:ring-green-500/20"
+                  />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
@@ -168,17 +170,17 @@ export default function SignInPage() {
                 {/* Sign In Button */}
                 <Button 
                   type="submit"
-                  className="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-3 rounded-lg transition-all duration-200 shadow-lg shadow-green-500/25 hover:shadow-green-500/40"
+                  className="w-full h-[54px]  bg-[#00D98B] hover:bg-green-600 text-white font-semibold py-3 rounded-lg transition-all duration-200 shadow-lg shadow-green-500/25 hover:shadow-green-500/40"
                 >
                   Sign In
                 </Button>
               </form>
 
               {/* Divider */}
-              <div className="relative">
-                <Separator className="bg-gray-700" />
+              <div className="relative py-5">
+                <Separator className="bg-gray-700/50" />
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="bg-gray-800/50 px-3 text-xs text-gray-400 font-medium">
+                  <span className="bg-gray-[#1F293780]/50 px-3 text-xs text-gray-400 font-medium">
                     OR CONTINUE WITH
                   </span>
                 </div>
@@ -188,7 +190,7 @@ export default function SignInPage() {
               <div className="space-y-3">
                 <Button
                   variant="outline"
-                  className="w-full bg-gray-700/50 border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white transition-all duration-200"
+                  className="w-full bg-[#37415180]/50 h-[54px] border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white transition-all duration-200"
                 >
                   <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
                     <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -201,8 +203,8 @@ export default function SignInPage() {
 
                 <Button
                   variant="outline"
-                  className="w-full bg-gray-700/50 border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white transition-all duration-200"
-                >
+                   className="w-full bg-[#37415180]/50 h-[54px] border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white transition-all duration-200"
+               >
                   <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
                   </svg>
@@ -211,9 +213,8 @@ export default function SignInPage() {
 
                 <Button
                   variant="outline"
-                  className="w-full bg-gray-700/50 border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white transition-all duration-200"
-                >
-                  <div className="w-5 h-5 mr-2 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full"></div>
+                  className="w-full bg-[#37415180]/50 h-[54px] border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white transition-all duration-200"
+               ><Wallet className="w-5 h-5 mr-2" />
                   Connect Wallet
                 </Button>
               </div>
@@ -222,19 +223,23 @@ export default function SignInPage() {
               <div className="text-center">
                 <p className="text-gray-400 text-sm">
                   Don't have an account?{" "}
-                  <Link 
+              
+                </p>
+                    <Link 
                     href="/sign-up" 
                     className="text-green-400 hover:text-green-300 font-medium transition-colors"
                   >
                     Create Account
                   </Link>
-                </p>
               </div>
 
               {/* Footer Note */}
-              <div className="text-center">
-                <p className="text-gray-500 text-xs">
-                  Your credentials are encrypted and securely processed.
+              <div     className="w-full justify-center items-center flex rounded-md text-center bg-[#37415180]/30 h-[54px] border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white transition-all duration-200"
+              >
+
+                
+                <p className="text-gray-500 text-xs flex">
+           <Shield className="w-3 h-3  mr-2 text-green-400" />     Your credentials are encrypted and securely processed.
                 </p>
               </div>
             </div>
