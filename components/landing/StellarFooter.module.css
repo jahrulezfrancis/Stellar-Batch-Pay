@@ -1,0 +1,210 @@
+/**
+ * StellarFooter.module.css
+ *
+ * Scoped styles for StellarFooter.
+ * All class names are locally scoped by Next.js CSS Modules.
+ *
+ * Design tokens — override in globals.css if you want a different accent:
+ *   --footer-bg      : #0f1117
+ *   --footer-accent  : #22c55e
+ *   --footer-text    : #9ca3af
+ *   --footer-heading : #f9fafb
+ *   --footer-muted   : #6b7280
+ *   --footer-rule    : rgba(255, 255, 255, 0.08)
+ */
+
+/* ── Root ─────────────────────────────────────────────────────────────────── */
+
+.footer {
+  background-color: #0f1117;
+  color: #e5e7eb;
+  width: 100%;
+  flex-shrink: 0; /* prevents collapse inside a flex column layout */
+}
+
+/* ── Container ────────────────────────────────────────────────────────────── */
+
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 52px 64px 32px;
+}
+
+/* ── Upper section ────────────────────────────────────────────────────────── */
+
+.upper {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 48px;
+}
+
+/* ── Brand block ──────────────────────────────────────────────────────────── */
+
+.brand {
+  flex: 1 1 auto;
+  max-width: 400px;
+}
+
+.brandName {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  text-decoration: none;
+  border-radius: 4px;
+  outline-offset: 4px;
+}
+
+.brandName:focus-visible {
+  outline: 2px solid #22c55e;
+}
+
+.wordmark {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.wordmarkRegular { color: #f9fafb; }
+.wordmarkAccent  { color: #22c55e; }
+
+.description {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: #9ca3af;
+  max-width: 380px;
+  margin: 0;
+}
+
+/* ── Nav group ────────────────────────────────────────────────────────────── */
+
+.navGroup {
+  display: flex;
+  gap: 96px;
+  flex-shrink: 0;
+}
+
+/* ── Nav column ───────────────────────────────────────────────────────────── */
+
+.navColumn {
+  min-width: 100px;
+}
+
+.navTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f9fafb;
+  letter-spacing: 0.005em;
+  margin: 0 0 20px;
+}
+
+.navList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.navLink {
+  font-size: 13.5px;
+  color: #9ca3af;
+  text-decoration: none;
+  display: inline-block;
+  border-radius: 2px;
+  transition: color 150ms ease;
+}
+
+.navLink:hover      { color: #f9fafb; }
+.navLink:focus-visible {
+  outline: 2px solid #22c55e;
+  outline-offset: 3px;
+}
+
+/* ── Divider ──────────────────────────────────────────────────────────────── */
+
+.divider {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 40px 0 28px;
+}
+
+/* ── Bottom bar ───────────────────────────────────────────────────────────── */
+
+.bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.copyright {
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1;
+  margin: 0;
+}
+
+/* ── Social icons ─────────────────────────────────────────────────────────── */
+
+.social {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.socialLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  text-decoration: none;
+  line-height: 0;
+  border-radius: 4px;
+  padding: 2px;
+  transition: color 150ms ease;
+}
+
+.socialLink:hover      { color: #d1d5db; }
+.socialLink:focus-visible {
+  outline: 2px solid #22c55e;
+  outline-offset: 4px;
+}
+
+/* ── Responsive · Tablet ≤ 900px ──────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .container  { padding: 44px 40px 28px; }
+  .navGroup   { gap: 56px; }
+}
+
+/* ── Responsive · Mobile ≤ 640px ──────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .container {
+    padding: 40px 24px 28px;
+  }
+
+  .upper {
+    flex-direction: column;
+    gap: 36px;
+  }
+
+  .brand    { max-width: 100%; }
+
+  .navGroup {
+    width: 100%;
+    gap: 40px;
+  }
+
+  .bottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .social { gap: 18px; }
+}

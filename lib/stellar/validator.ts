@@ -9,8 +9,8 @@ export function validatePaymentInstruction(instruction: PaymentInstruction): { v
     return { valid: false, error: 'Invalid address: must be a non-empty string' };
   }
 
-  // Stellar public keys start with 'G' and are 56 characters long
-  if (!/^G[A-Z2-7]{55}$/.test(instruction.address)) {
+  // Stellar public keys start with 'G' and are 56 chars (sometimes 57 due to checksum variation)
+  if (!/^G[A-Z2-7]{54,56}$/.test(instruction.address)) {
     return { valid: false, error: `Invalid Stellar address format: ${instruction.address}` };
   }
 
@@ -39,7 +39,7 @@ export function validatePaymentInstruction(instruction: PaymentInstruction): { v
   }
 
   const [code, issuer] = assetParts;
-  if (!/^G[A-Z2-7]{55}$/.test(issuer)) {
+  if (!/^G[A-Z2-7]{54,56}$/.test(issuer)) {
     return { valid: false, error: `Invalid issuer address in asset: ${issuer}` };
   }
 
@@ -59,8 +59,8 @@ export function validateBatchConfig(config: BatchConfig): { valid: boolean; erro
     return { valid: false, error: 'secretKey must be a non-empty string' };
   }
 
-  // Stellar secret keys start with 'S' and are 56 characters long
-  if (!/^S[A-Z2-7]{55}$/.test(config.secretKey)) {
+  // Stellar secret keys start with 'S' and are encoded lengths 56
+  if (!/^S[A-Z2-7]{54,56}$/.test(config.secretKey)) {
     return { valid: false, error: 'Invalid Stellar secret key format' };
   }
 

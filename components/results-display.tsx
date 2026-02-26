@@ -1,12 +1,14 @@
 'use client';
 
-import { BatchResult } from '@/lib/stellar/types';
+import { BatchResult, PaymentInstruction } from '@/lib/stellar/types';
+import { Button } from '@/components/ui/button';
 
 interface ResultsDisplayProps {
   result: BatchResult;
+  onRetry?: (failedPayments: PaymentInstruction[]) => void;
 }
 
-export function ResultsDisplay({ result }: ResultsDisplayProps) {
+export function ResultsDisplay({ result, onRetry }: ResultsDisplayProps) {
   const successCount = result.summary.successful;
   const failCount = result.summary.failed;
   const successRate = Math.round((successCount / result.totalRecipients) * 100);
@@ -84,14 +86,39 @@ export function ResultsDisplay({ result }: ResultsDisplayProps) {
       </div>
 
       {failCount > 0 && (
-        <div className="bg-destructive/10 border border-destructive rounded-lg p-3 text-sm">
-          <p className="font-semibold text-destructive mb-2">Failed Payments:</p>
-          <div className="space-y-1 text-muted-foreground">
+        <div className="bg-destructive/10 border border-destructive rounded-lg p-4">
+          <div className="flex justify-between items-start mb-3">
+            <div>
+              <p className="font-semibold text-destructive">Partial Failure</p>
+              <p className="text-xs text-muted-foreground">{failCount} payments failed to process.</p>
+            </div>
+            {onRetry && (
+              <Button
+                onClick={() => {
+                  const failed = result.results
+                    .filter(r => r.status === 'failed')
+                    .map(r => ({
+                      address: r.recipient,
+                      amount: r.amount,
+                      asset: r.asset
+                    }));
+                  onRetry(failed);
+                }}
+                variant="destructive"
+                size="sm"
+                className="shadow-sm transition-all hover:scale-105 active:scale-95"
+              >
+                Retry Failed Only
+              </Button>
+            )}
+          </div>
+          <div className="space-y-1 text-muted-foreground max-h-32 overflow-y-auto">
             {result.results
               .filter(r => r.status === 'failed')
               .map((payment, idx) => (
-                <div key={idx} className="text-xs">
-                  <span className="font-mono">{payment.recipient.slice(0, 20)}...</span>: {payment.error}
+                <div key={idx} className="text-xs flex justify-between">
+                  <span className="font-mono">{payment.recipient.slice(0, 20)}...</span>
+                  <span className="text-destructive/80 italic">{payment.error}</span>
                 </div>
               ))}
           </div>
