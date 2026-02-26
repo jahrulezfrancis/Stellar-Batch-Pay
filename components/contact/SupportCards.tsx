@@ -32,7 +32,7 @@ export function SupportCards() {
       {cards.map((card, index) => (
         <div
           key={index}
-          className="bg-[#13151A] border border-[#1E2128] rounded-2xl p-6 md:p-8 flex flex-col items-start shadow-lg transition-transform hover:-translate-y-1 hover:border-[#2A2E39] duration-300"
+          className="bg-[#0F1419] border border-[#252B3B] rounded-2xl p-6 md:p-8 flex flex-col items-start shadow-lg transition-transform hover:-translate-y-1 hover:border-[#2A2E39] duration-300"
         >
           <div className="bg-[#00E676]/10 p-3 rounded-lg mb-6 flex items-center justify-center">
             {card.icon}

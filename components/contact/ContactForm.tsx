@@ -69,16 +69,17 @@ export function ContactForm() {
   }
 
   return (
-    <div className="p-8 md:p-10 rounded-2xl bg-[#13151A] border border-[#1E2128] shadow-lg w-full h-full flex flex-col">
+    <div className="rounded-2xl bg-[#0F1419] border border-[#252B3B] shadow-lg w-full h-full flex flex-col">
+      <div className="border border-[#252B3B] rounded-[12px] p-6">
       <h2 className="text-3xl font-bold text-white mb-8 tracking-tight">
         Send us a message
       </h2>
       <Form {...form}>
         <form
           onSubmit={form.handleSubmit(onSubmit)}
-          className="space-y-6 flex flex-col flex-1 border border-[#252B3B] rounded-[12px]"
+          className="space-y-6 flex flex-col flex-1"
         >
-          <div className="border border-[#252B3B] h-[486px] rounded-[12px] p-6">
+          <div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
@@ -91,7 +92,7 @@ export function ContactForm() {
                   <FormControl>
                     <Input
                       placeholder="John Doe"
-                      className="bg-[#1C1F26] border-[#2A2E39] text-gray-200 placeholder:text-gray-500 focus-visible:ring-[#00E676] focus-visible:border-[#00E676]"
+                      className="bg-[#1A1F2E] border-[#2A2E39] text-gray-200 placeholder:text-gray-500 focus-visible:ring-[#00E676] focus-visible:border-[#00E676]"
                       {...field}
                     />
                   </FormControl>
@@ -111,7 +112,7 @@ export function ContactForm() {
                     <Input
                       placeholder="john@example.com"
                       type="email"
-                      className="bg-[#1C1F26] border-[#2A2E39] text-gray-200 placeholder:text-gray-500 focus-visible:ring-[#00E676] focus-visible:border-[#00E676]"
+                      className="bg-[#1A1F2E] border-[#2A2E39] text-gray-200 placeholder:text-gray-500 focus-visible:ring-[#00E676] focus-visible:border-[#00E676]"
                       {...field}
                     />
                   </FormControl>
@@ -130,7 +131,7 @@ export function ContactForm() {
                   <FormControl>
                     <Input
                       placeholder="Optional"
-                      className="bg-[#1C1F26] border-[#2A2E39] text-gray-200 placeholder:text-gray-500 focus-visible:ring-[#00E676] focus-visible:border-[#00E676]"
+                      className="bg-[#1A1F2E] border-[#2A2E39] text-gray-200 placeholder:text-gray-500 focus-visible:ring-[#00E676] focus-visible:border-[#00E676]"
                       {...field}
                     />
                   </FormControl>
@@ -152,7 +153,7 @@ export function ContactForm() {
                     value={field.value}
                   >
                     <FormControl>
-                      <SelectTrigger className="bg-[#1C1F26] border-[#2A2E39] text-gray-200 focus:ring-[#00E676] focus:border-[#00E676] data-[placeholder]:text-gray-500">
+                      <SelectTrigger className="bg-[#1A1F2E] border-[#2A2E39] text-gray-200 focus:ring-[#00E676] focus:border-[#00E676] data-[placeholder]:text-gray-500">
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
                     </FormControl>
@@ -200,7 +201,7 @@ export function ContactForm() {
                 <FormControl className="flex-1">
                   <Textarea
                     placeholder="Tell us how we can help you..."
-                    className="resize-none min-h-[160px] h-full bg-[#1C1F26] border-[#2A2E39] text-gray-200 placeholder:text-gray-500 focus-visible:ring-[#00E676] focus-visible:border-[#00E676]"
+                    className="resize-none min-h-[160px] h-full bg-[#1A1F2E] border-[#2A2E39] text-gray-200 placeholder:text-gray-500 focus-visible:ring-[#00E676] focus-visible:border-[#00E676]"
                     {...field}
                   />
                 </FormControl>
@@ -212,7 +213,7 @@ export function ContactForm() {
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="bg-[#00E676] hover:bg-[#00C853] text-black font-semibold px-6 py-6 h-auto text-base rounded-xl transition-colors shrink-0"
+              className="bg-[#00D98B] hover:bg-[#00C853] text-black font-semibold px-6 py-6 h-auto text-base rounded-xl transition-colors shrink-0"
             >
               <Send className="mr-2 h-5 w-5" />
               {isSubmitting ? "Sending..." : "Send Message"}
@@ -221,6 +222,7 @@ export function ContactForm() {
           </div>
         </form>
       </Form>
+      </div>
     </div>
   );
 }
