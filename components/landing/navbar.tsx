@@ -61,6 +61,15 @@ export function Navbar() {
           </div>
 
           <div className="flex items-center gap-4">
+            <Link href="/signin">
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-[#00D98B] text-[#00D98B] hover:bg-[#00D98B] hover:text-black"
+              >
+                Sign In
+              </Button>
+            </Link>
             <Link href="/demo">
               <Button
                 size="sm"
