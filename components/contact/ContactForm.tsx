@@ -69,17 +69,21 @@ export function ContactForm() {
   }
 
   return (
-    <div className="p-8 md:p-10 rounded-2xl bg-[#13151A] border border-[#1E2128] shadow-lg w-full">
+    <div className="p-8 md:p-10 rounded-2xl bg-[#13151A] border border-[#1E2128] shadow-lg w-full h-full flex flex-col">
       <h2 className="text-3xl font-bold text-white mb-8 tracking-tight">
         Send us a message
       </h2>
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <FormField
-              control={form.control}
-              name="fullName"
-              render={({ field }) => (
+        <form
+          onSubmit={form.handleSubmit(onSubmit)}
+          className="space-y-6 flex flex-col flex-1 border border-[#252B3B] rounded-[12px]"
+        >
+          <div className="border border-[#252B3B] h-[486px] rounded-[12px] p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <FormField
+                control={form.control}
+                name="fullName"
+                render={({ field }) => (
                 <FormItem>
                   <FormLabel className="text-sm font-medium text-gray-300">
                     Full Name <span className="text-[#00E676]">*</span>
@@ -189,14 +193,14 @@ export function ContactForm() {
             control={form.control}
             name="message"
             render={({ field }) => (
-              <FormItem>
+              <FormItem className="flex-1 flex flex-col">
                 <FormLabel className="text-sm font-medium text-gray-300">
                   Message <span className="text-[#00E676]">*</span>
                 </FormLabel>
-                <FormControl>
+                <FormControl className="flex-1">
                   <Textarea
                     placeholder="Tell us how we can help you..."
-                    className="resize-none min-h-[160px] bg-[#1C1F26] border-[#2A2E39] text-gray-200 placeholder:text-gray-500 focus-visible:ring-[#00E676] focus-visible:border-[#00E676]"
+                    className="resize-none min-h-[160px] h-full bg-[#1C1F26] border-[#2A2E39] text-gray-200 placeholder:text-gray-500 focus-visible:ring-[#00E676] focus-visible:border-[#00E676]"
                     {...field}
                   />
                 </FormControl>
@@ -204,7 +208,7 @@ export function ContactForm() {
               </FormItem>
             )}
           />
-          <div className="pt-2">
+          <div className="pt-2 mt-auto">
             <Button
               type="submit"
               disabled={isSubmitting}
@@ -213,6 +217,7 @@ export function ContactForm() {
               <Send className="mr-2 h-5 w-5" />
               {isSubmitting ? "Sending..." : "Send Message"}
             </Button>
+          </div>
           </div>
         </form>
       </Form>
