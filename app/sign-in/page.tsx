@@ -17,12 +17,14 @@ export default function SignInPage() {
   const [rememberDevice, setRememberDevice] = useState(false)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br  from-[#030712] via-[#111827] to-[#030712] flex items-center justify-center p-4">
+    <div 
+    className="min-h-screen bg-gradient-to-br  from-[#030712] via-[#111827] to-[#030712] flex items-center justify-center p-4">
+     
       <div className="w-full max-w-6xl mx-auto">
         <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
           
           {/* Left Section - Welcome */}
-          <div className="text-center lg:text-left space-y-8 max-h-screen">
+          <div className="text-center hidden md:block lg:text-left space-y-8 max-h-screen">
             {/* Welcome Icon */}
             <div className="md:flex gap-5 justify-center lg:justify-start">
               <div className="w-20 h-20 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl flex items-center justify-center shadow-lg shadow-green-500/25">
