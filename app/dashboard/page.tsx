@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils"
 import { SummaryCard } from "@/components/dashboard/SummaryCard"
 import { ActionCard } from "@/components/dashboard/ActionCard"
 import { TipsCard } from "@/components/dashboard/TipsCard"
+import { RecentBatchesTable } from "@/components/dashboard/RecentBatchesTable"
 
 const stats = [
   {
@@ -52,36 +53,6 @@ const stats = [
   },
 ]
 
-const recentBatches = [
-  {
-    id: "#BP-2024-001",
-    recipients: 147,
-    amount: "$12,450.00",
-    status: "Completed",
-    timestamp: "2 hours ago",
-  },
-  {
-    id: "#BP-2024-002",
-    recipients: 89,
-    amount: "$8,920.50",
-    status: "Processing",
-    timestamp: "4 hours ago",
-  },
-  {
-    id: "#BP-2024-003",
-    recipients: 203,
-    amount: "$15,780.25",
-    status: "Completed",
-    timestamp: "1 day ago",
-  },
-  {
-    id: "#BP-2024-004",
-    recipients: 156,
-    amount: "$22,340.75",
-    status: "Failed",
-    timestamp: "2 days ago",
-  },
-]
 
 export default function DashboardPage() {
   return (
@@ -165,57 +136,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Recent Batches Table */}
-      <Card className="border-[#1F2937] bg-[#121827]">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-white">Recent Batches</h2>
-            <Button variant="link" className="text-[#00D98B] text-sm p-0">View All</Button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="text-xs font-medium text-gray-500 border-b border-[#1F2937]">
-                  <th className="pb-4">Batch ID</th>
-                  <th className="pb-4">Recipients</th>
-                  <th className="pb-4">Amount</th>
-                  <th className="pb-4">Status</th>
-                  <th className="pb-4">Created</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm">
-                {recentBatches.map((batch) => (
-                  <tr key={batch.id} className="border-b border-[#1F2937]/50 hover:bg-white/[0.02] transition-colors">
-                    <td className="py-4 font-medium text-gray-300">{batch.id}</td>
-                    <td className="py-4 text-gray-400">{batch.recipients}</td>
-                    <td className="py-4 font-semibold text-white">{batch.amount}</td>
-                    <td className="py-4">
-                      <Badge 
-                        variant="outline" 
-                        className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] border-none",
-                          batch.status === "Completed" ? "bg-green-500/10 text-green-400" :
-                          batch.status === "Processing" ? "bg-amber-500/10 text-amber-400" :
-                          "bg-red-500/10 text-red-400"
-                        )}
-                      >
-                        <div className={cn(
-                          "mr-1 h-1.5 w-1.5 rounded-full",
-                          batch.status === "Completed" ? "bg-green-400" :
-                          batch.status === "Processing" ? "bg-amber-400" :
-                          "bg-red-400"
-                        )}></div>
-                        {batch.status}
-                      </Badge>
-                    </td>
-                    <td className="py-4 text-gray-500">{batch.timestamp}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Recent Batches Table Section */}
+      <RecentBatchesTable />
     </div>
   )
 }
