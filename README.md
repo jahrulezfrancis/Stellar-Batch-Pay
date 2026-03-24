@@ -2,9 +2,20 @@
 
 ## What Is This?
 
-Stellar BatchPay is a tool that lets you send many cryptocurrency payments at once on the Stellar blockchain. Instead of sending payments one-by-one (which would take forever), BatchPay groups them together and sends them in efficient batches.
+Stellar BatchPay is a toolkit for sending many transfers on Stellar in two ways:
 
-Think of it like this: If you need to send money to 500 customers, instead of manually transferring to each person individually, you upload a list of recipients and amounts, and Stellar BatchPay handles everything automatically in seconds.
+- **Batch Payments**: immediate transfers sent in efficient transaction batches.
+- **Batch Vesting**: time-locked allocations deposited once and claimable later.
+
+Think of it like this: if you need to process payouts for hundreds of recipients, you can either pay them now (batch payments) or lock funds until a future date (batch vesting), all from one project.
+
+## Core Features
+
+- **Immediate batch payouts** for payroll, vendor settlements, rewards, and mass distributions.
+- **Time-locked batch vesting** for grants, milestone payouts, token unlock schedules, and delayed compensation.
+- **CSV/JSON friendly workflow** for upload, validation, and processing.
+- **Stellar-aware batching** that respects network operation limits.
+- **Detailed result visibility** for processed transactions and recipient-level outcomes.
 
 ---
 
@@ -22,6 +33,8 @@ Think of it like this: If you need to send money to 500 customers, instead of ma
 - All payments are signed and sent in seconds
 - You get a detailed report showing exactly what succeeded and what failed
 
+For teams that need delayed distribution, the project also supports **batch vesting** so funds can be allocated now and unlocked at a specific future time.
+
 ---
 
 ## How It Works (Simple Version)
@@ -32,6 +45,8 @@ Think of it like this: If you need to send money to 500 customers, instead of ma
 4. **It automatically groups payments** into batches (Stellar limits how many per transaction)
 5. **All payments are signed and submitted** to the Stellar blockchain
 6. **You get a report** showing exactly what happened
+
+For vesting flows, the sender deposits funds for many recipients with a shared unlock time, and recipients claim once the lock expires.
 
 ---
 
@@ -62,6 +77,13 @@ For developers and automated systems:
 - Integrate with other systems
 - Useful for technical users and systems integration
 
+### 4. Batch Vesting Contract (`contracts/batch-vesting/`)
+A Soroban smart contract for time-locked distribution:
+- **`deposit(...)`** stores vesting records for multiple recipients in one call
+- Accepts a common **`unlock_time`** for the batch
+- Transfers total tokens from sender to the contract at deposit time
+- **`claim(...)`** lets each recipient withdraw only after unlock time
+
 ---
 
 ## Getting Started (Non-Technical Users)
@@ -91,6 +113,8 @@ For developers and automated systems:
 6. **Click "Submit Batch"** and wait for it to process
 
 7. **Check the results** to see what succeeded and failed
+
+> Note: The current web flow is focused on direct batch payments. Batch vesting is implemented in the smart contract layer and can be integrated into app/automation workflows as needed.
 
 ---
 
@@ -136,6 +160,44 @@ GDZST3XVCDTUJ76ZAV2HA72KYXP7NQJLX7NBXGQVVFEWZYZK7WPVNKYA,100.00,USDC:GBUQWP3BOUZ
 
 ---
 
+## Batch Vesting
+
+Batch vesting is for **time-locked payments**. Instead of transferring funds to recipients immediately, you deposit tokens into a vesting contract now, set an unlock timestamp, and recipients claim later.
+
+### How Time-Locked Payments Work
+
+1. **Sender deposits** tokens for many recipients in one contract call.
+2. Each recipient gets a vesting record with `amount` and `unlock_time`.
+3. Funds remain locked in the contract until unlock time is reached.
+4. Recipient calls `claim` to receive funds after unlock time.
+
+### Good Use Cases
+
+- **Payroll with cliff dates** (payday unlocks).
+- **Contributor or community grants** with delayed release.
+- **Milestone-based payouts** that should only unlock after agreed dates.
+- **Token distribution schedules** where immediate liquidity is not desired.
+
+### Payments vs Vesting (At a Glance)
+
+| Capability | Batch Payments | Batch Vesting |
+| --- | --- | --- |
+| When recipient gets funds | Immediately after tx confirmation | After `unlock_time` and claim |
+| Main primitive | Stellar payment operations | Soroban vesting contract storage + claim |
+| Typical use | Operational payouts | Grants, cliffs, milestone unlocks |
+| Custody before recipient receives | Sender until sent | Contract escrow until unlock |
+
+### Contract Interface (Current Implementation)
+
+Implemented in `contracts/batch-vesting/src/lib.rs`:
+
+- `deposit(env, sender, token, recipients, amounts, unlock_time)`
+- `claim(env, recipient, token)`
+
+`deposit` validates recipient/amount arrays, stores per-recipient vesting state, and transfers total token amount into contract custody. `claim` enforces the lock and transfers vested funds to the recipient.
+
+---
+
 ## Important Things to Know
 
 ### Testnet vs Mainnet
@@ -149,6 +211,7 @@ Each transaction costs a small fee (about 0.00001 XLM per operation). The system
 - Maximum 100 payments per transaction (the system automatically splits larger batches)
 - You can't undo a payment once submitted
 - You need enough money in your account for all payments plus fees
+- For vesting, recipients cannot claim before unlock time
 
 ### Safety
 - **Never share your secret key** with anyone
@@ -169,6 +232,15 @@ Let's say you need to pay 250 influencers for promoting your product:
 5. **You get a report** showing all 250 payments with their status
 
 Without this tool, you'd be manually sending payments for hours. With it? Done in seconds.
+
+### Vesting Example
+
+You need to allocate milestone grants to 40 builders, but unlock only at quarter end:
+
+1. Deposit all 40 allocations to the batch vesting contract with a shared unlock timestamp
+2. Contract escrows total tokens immediately
+3. Each builder claims after the unlock date
+4. No manual release run is needed at unlock time
 
 ---
 
@@ -203,6 +275,10 @@ lib/stellar/
 ├── batcher.ts         # Groups payments into batches
 ├── server.ts          # Connects to Stellar and sends payments
 └── index.ts           # Exports public functions
+
+contracts/
+└── batch-vesting/
+    └── src/lib.rs     # Soroban batch vesting contract (deposit + claim)
 
 app/
 ├── page.tsx           # Main web page
@@ -257,6 +333,8 @@ After submitting, you'll see:
 - **Per-recipient status**: For each person, did they get paid or was there an error?
 - **Transaction IDs**: The blockchain reference for each transaction (so you can verify on a blockchain explorer)
 - **Timestamp**: When everything was processed
+
+For vesting workflows, you should also track contract-level events/state such as deposit execution, recipient vesting records, unlock timestamp, and successful claims.
 
 ---
 
