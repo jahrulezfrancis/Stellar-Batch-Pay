@@ -40,6 +40,55 @@ export NODE_ENV="production"
 vercel env add STELLAR_SECRET_KEY
 ```
 
+## Smart Contract Deployment
+
+Follow these steps to deploy and initialize the Soroban smart contract.
+
+### 1. Prerequisites
+
+Ensure you have the following installed:
+- [Rust](https://www.rust-lang.org/tools/install)
+- [Stellar CLI](https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup#install-the-stellar-cli)
+- Wasm target: `rustup target add wasm32-unknown-unknown`
+
+### 2. Configure CLI Identity
+
+Create an identity for deployment:
+```bash
+stellar keys generate --network testnet deployer
+```
+
+### 3. Build the Contract
+
+Navigate to the contract directory and build the release Wasm:
+```bash
+cd contracts/batch-vesting
+cargo build --target wasm32-unknown-unknown --release
+```
+
+The compiled contract will be available at:
+`target/wasm32-unknown-unknown/release/batch_vesting.wasm`
+
+### 4. Deploy to Testnet
+
+Deploy the contract and capture the **Contract ID**:
+```bash
+stellar contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/batch_vesting.wasm \
+  --source deployer \
+  --network testnet
+```
+
+> [!NOTE]
+> Save the returned `Contract ID` (starts with `C...`) as it is required for frontend integration.
+
+### 5. Frontend Integration
+
+Update your frontend `.env` file with the newly deployed Contract ID:
+```bash
+NEXT_PUBLIC_CONTRACT_ID="C..."
+```
+
 ## Hosting Options
 
 ### Option 1: Vercel (Recommended for Next.js)
