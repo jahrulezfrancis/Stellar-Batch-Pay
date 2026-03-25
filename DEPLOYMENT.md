@@ -40,6 +40,179 @@ export NODE_ENV="production"
 vercel env add STELLAR_SECRET_KEY
 ```
 
+## Soroban Smart Contract Deployment
+
+This section covers deploying the `batch-vesting` Soroban smart contract to Stellar testnet or mainnet.
+
+### Prerequisites
+
+Install Rust and the Soroban CLI:
+
+```bash
+# Install Rust (if not already installed)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Add the WebAssembly target
+rustup target add wasm32-unknown-unknown
+
+# Install Soroban CLI
+cargo install --locked stellar-cli --features opt
+```
+
+Verify the installation:
+
+```bash
+stellar --version
+```
+
+### Configure Network
+
+Set up the Stellar network for deployment:
+
+```bash
+# Configure testnet
+stellar network add testnet \
+  --rpc-url https://soroban-testnet.stellar.org:443 \
+  --network-passphrase "Test SDF Network ; September 2015"
+
+# Configure mainnet
+stellar network add mainnet \
+  --rpc-url https://soroban-rpc.mainnet.stellar.gateway.fm \
+  --network-passphrase "Public Global Stellar Network ; September 2015"
+```
+
+### Generate or Import Deployer Identity
+
+```bash
+# Generate a new identity for deployment
+stellar keys generate deployer --network testnet
+
+# Or import an existing secret key
+stellar keys add deployer --secret-key
+# You will be prompted to enter your secret key
+
+# Fund the account on testnet
+stellar keys fund deployer --network testnet
+
+# Verify the identity
+stellar keys address deployer
+```
+
+> **Note:** For mainnet, fund your account through an exchange or existing wallet. The deployer account needs sufficient XLM to cover transaction fees and contract storage rent.
+
+### Build the Contract
+
+From the repository root:
+
+```bash
+cd contracts
+
+# Build the contract in release mode
+cargo build --target wasm32-unknown-unknown --release
+```
+
+The compiled WASM file will be located at:
+
+```
+target/wasm32-unknown-unknown/release/batch_vesting.wasm
+```
+
+### Deploy to Testnet
+
+```bash
+# Deploy the contract to testnet
+stellar contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/batch_vesting.wasm \
+  --source deployer \
+  --network testnet
+```
+
+This command outputs the **CONTRACT_ID**. Save it — you will need it to interact with the contract and configure the frontend.
+
+```bash
+# Example output:
+# CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
+
+# Store it for later use
+export CONTRACT_ID="<your-contract-id>"
+```
+
+### Deploy to Mainnet
+
+> **Warning:** Deploying to mainnet uses real XLM. Ensure the contract has been thoroughly tested on testnet before proceeding.
+
+```bash
+stellar contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/batch_vesting.wasm \
+  --source deployer \
+  --network mainnet
+```
+
+### Verify the Deployment
+
+Confirm the contract is deployed and accessible:
+
+```bash
+# Fetch contract info
+stellar contract info interface \
+  --contract-id $CONTRACT_ID \
+  --network testnet
+```
+
+You should see the contract functions (`deposit`, `claim`) listed in the output.
+
+### Interact with the Contract
+
+Test the deployed contract by invoking its functions:
+
+```bash
+# Example: invoke the deposit function
+stellar contract invoke \
+  --id $CONTRACT_ID \
+  --source deployer \
+  --network testnet \
+  -- \
+  deposit \
+  --sender <SENDER_ADDRESS> \
+  --token <TOKEN_ADDRESS> \
+  --recipients '["<ADDR1>", "<ADDR2>"]' \
+  --amounts '[1000000, 2000000]' \
+  --unlock_time 1700000000
+```
+
+### Update Frontend Environment Variables
+
+After deploying, update the frontend to point to the deployed contract:
+
+```bash
+# In the project root, create or update .env.local
+echo "NEXT_PUBLIC_CONTRACT_ID=$CONTRACT_ID" >> .env.local
+echo "NEXT_PUBLIC_STELLAR_NETWORK=testnet" >> .env.local
+```
+
+For production (Vercel):
+
+```bash
+vercel env add NEXT_PUBLIC_CONTRACT_ID
+vercel env add NEXT_PUBLIC_STELLAR_NETWORK
+```
+
+### Contract Upgrade
+
+To deploy an updated version of the contract:
+
+```bash
+# Build the new version
+cd contracts
+cargo build --target wasm32-unknown-unknown --release
+
+# Install the new WASM code
+stellar contract install \
+  --wasm target/wasm32-unknown-unknown/release/batch_vesting.wasm \
+  --source deployer \
+  --network testnet
+```
+
 ## Hosting Options
 
 ### Option 1: Vercel (Recommended for Next.js)
