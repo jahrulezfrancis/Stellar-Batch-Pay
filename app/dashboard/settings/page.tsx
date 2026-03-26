@@ -22,6 +22,7 @@ import { Copy, Wallet, Layers } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { AccountProfileCard } from "@/components/dashboard/settings/AccountProfileCard";
 import { NotificationsCard } from "@/components/dashboard/settings/NotificationsCard";
+import { DangerZoneCard } from "@/components/dashboard/settings/DangerZoneCard";
 
 export default function SettingsPage() {
   const { publicKey, connect, disconnect, isConnecting } = useFreighter();
@@ -269,6 +270,8 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+      <DangerZoneCard />
+
     </div>
   );
 }
