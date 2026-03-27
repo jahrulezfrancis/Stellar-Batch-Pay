@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, String, Symbol, Vec};
 
 #[contract]
 pub struct BatchVestingContract;
@@ -246,6 +246,11 @@ impl BatchVestingContract {
             &caller,
             &total_revoked,
         );
+    }
+
+    /// Return the contract version string.
+    pub fn version(env: Env) -> String {
+        String::from_str(&env, "1.0.0")
     }
 
     /// Claim the vested funds.

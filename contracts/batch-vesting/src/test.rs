@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
-    token, Address, Env, IntoVal, Symbol, Vec,
+    token, Address, Env, IntoVal, String, Symbol, Vec,
 };
 use token::Client as TokenClient;
 use token::StellarAssetClient as TokenAdminClient;
@@ -17,6 +17,14 @@ fn create_token_contract<'a>(
         TokenClient::new(env, &contract_id),
         TokenAdminClient::new(env, &contract_id),
     )
+}
+
+#[test]
+fn test_version() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+    assert_eq!(client.version(), String::from_str(&env, "1.0.0"));
 }
 
 #[test]
