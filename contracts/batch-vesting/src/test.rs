@@ -176,6 +176,92 @@ fn test_revoke_by_admin() {
 }
 
 #[test]
+fn test_admin_transfer_requires_explicit_acceptance() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let pending_admin = Address::generate(&env);
+
+    client.set_admin(&admin);
+    client.propose_admin(&admin, &pending_admin);
+
+    client.toggle_pause(&admin, &true);
+    client.accept_admin(&pending_admin);
+    client.toggle_pause(&pending_admin, &false);
+}
+
+#[test]
+#[should_panic(expected = "Only admin can perform this action")]
+fn test_only_current_admin_can_propose_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let pending_admin = Address::generate(&env);
+
+    client.set_admin(&admin);
+    client.propose_admin(&attacker, &pending_admin);
+}
+
+#[test]
+#[should_panic(expected = "Only pending admin can accept transfer")]
+fn test_only_pending_admin_can_accept_transfer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let pending_admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+
+    client.set_admin(&admin);
+    client.propose_admin(&admin, &pending_admin);
+    client.accept_admin(&attacker);
+}
+
+#[test]
+fn test_admin_can_renounce() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let pending_admin = Address::generate(&env);
+
+    client.set_admin(&admin);
+    client.propose_admin(&admin, &pending_admin);
+    client.renounce_admin(&admin);
+}
+
+#[test]
+#[should_panic(expected = "Admin must be set")]
+fn test_renounced_admin_loses_privileges() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+
+    client.set_admin(&admin);
+    client.renounce_admin(&admin);
+    client.toggle_pause(&admin, &true);
+}
+
+#[test]
 #[should_panic(expected = "Unauthorized revoke attempt")]
 fn test_revoke_unauthorized() {
     let env = Env::default();
@@ -360,7 +446,12 @@ fn test_events_emission() {
         if contract == contract_id && topics.len() == 1 {
             let topic: Symbol = topics.get(0).unwrap().into_val(&env);
             if topic == deposit_symbol {
-                let (evt_sender, evt_recipient, evt_amount, evt_unlock): (Address, Address, i128, u64) = data.into_val(&env);
+                let (evt_sender, evt_recipient, evt_amount, evt_unlock): (
+                    Address,
+                    Address,
+                    i128,
+                    u64,
+                ) = data.into_val(&env);
                 assert_eq!(evt_sender, sender);
                 assert_eq!(evt_unlock, unlock_time);
                 if evt_recipient == recipient1 {
@@ -373,7 +464,10 @@ fn test_events_emission() {
             }
         }
     }
-    assert_eq!(deposit_found, 2, "Should find 2 deposit events with correct data");
+    assert_eq!(
+        deposit_found, 2,
+        "Should find 2 deposit events with correct data"
+    );
 
     // Advance time and claim 1
     env.ledger().with_mut(|li| {
@@ -498,7 +592,10 @@ fn test_batch_revoke_by_sender() {
     let (token, token_admin_client) = create_token_contract(&env, &token_admin);
     token_admin_client.mint(&sender, &1000);
 
-    let recipients = Vec::from_array(&env, [recipient1.clone(), recipient2.clone(), recipient3.clone()]);
+    let recipients = Vec::from_array(
+        &env,
+        [recipient1.clone(), recipient2.clone(), recipient3.clone()],
+    );
     let amounts = Vec::from_array(&env, [100, 200, 300]);
     let unlock_time = 1000;
 
@@ -577,7 +674,7 @@ fn test_batch_revoke_multiple_senders() {
 
     let token_admin = Address::generate(&env);
     let (token, token_admin_client) = create_token_contract(&env, &token_admin);
-    
+
     token_admin_client.mint(&sender1, &1000);
     token_admin_client.mint(&sender2, &1000);
 
@@ -757,7 +854,12 @@ fn test_batch_revoke_events_emission() {
         if contract == contract_id && topics.len() == 1 {
             let topic: Symbol = topics.get(0).unwrap().into_val(&env);
             if topic == revoke_symbol {
-                let (evt_recipient, evt_sender, evt_amount, evt_unlock): (Address, Address, i128, u64) = data.into_val(&env);
+                let (evt_recipient, evt_sender, evt_amount, evt_unlock): (
+                    Address,
+                    Address,
+                    i128,
+                    u64,
+                ) = data.into_val(&env);
                 assert_eq!(evt_sender, sender);
                 assert_eq!(evt_unlock, unlock_time);
                 if evt_recipient == recipient1 {
@@ -770,7 +872,10 @@ fn test_batch_revoke_events_emission() {
             }
         }
     }
-    assert_eq!(revoke_found, 2, "Should find 2 revoke events with correct data");
+    assert_eq!(
+        revoke_found, 2,
+        "Should find 2 revoke events with correct data"
+    );
 }
 
 #[test]
@@ -790,7 +895,10 @@ fn test_batch_revoke_partial_recipients() {
     let (token, token_admin_client) = create_token_contract(&env, &token_admin);
     token_admin_client.mint(&sender, &1000);
 
-    let recipients = Vec::from_array(&env, [recipient1.clone(), recipient2.clone(), recipient3.clone()]);
+    let recipients = Vec::from_array(
+        &env,
+        [recipient1.clone(), recipient2.clone(), recipient3.clone()],
+    );
     let amounts = Vec::from_array(&env, [100, 200, 300]);
     let unlock_time = 1000;
 

@@ -18,6 +18,7 @@ pub enum DataKey {
     Vesting(Address, u32), // (recipient, index) — granular per-schedule key
     VestingCount(Address), // total number of schedules for a recipient
     Admin,
+    PendingAdmin,
     Paused,
 }
 
@@ -30,6 +31,32 @@ impl BatchVestingContract {
         env.storage().persistent().set(&DataKey::Admin, admin);
     }
 
+    fn remove_admin_internal(env: &Env) {
+        env.storage().persistent().remove(&DataKey::Admin);
+    }
+
+    fn get_pending_admin(env: &Env) -> Option<Address> {
+        env.storage().persistent().get(&DataKey::PendingAdmin)
+    }
+
+    fn set_pending_admin_internal(env: &Env, admin: &Address) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingAdmin, admin);
+    }
+
+    fn remove_pending_admin_internal(env: &Env) {
+        env.storage().persistent().remove(&DataKey::PendingAdmin);
+    }
+
+    fn require_current_admin(env: &Env, admin: &Address) {
+        admin.require_auth();
+        let stored_admin = Self::get_admin(env).expect("Admin must be set");
+        if admin != &stored_admin {
+            panic!("Only admin can perform this action");
+        }
+    }
+
     fn is_authorized(env: &Env, caller: &Address, schedule_sender: &Address) -> bool {
         let is_sender = caller == schedule_sender;
         let is_admin = match Self::get_admin(env) {
@@ -40,7 +67,10 @@ impl BatchVestingContract {
     }
 
     fn is_paused(env: &Env) -> bool {
-        env.storage().persistent().get(&DataKey::Paused).unwrap_or(false)
+        env.storage()
+            .persistent()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
     }
 
     fn panic_if_paused(env: &Env) {
@@ -166,29 +196,56 @@ impl BatchVestingContract {
         Self::set_admin_internal(&env, &admin);
     }
 
-    /// Toggle contract pause state. Only admin can toggle pause.
-    pub fn toggle_pause(env: Env, admin: Address, paused: bool) {
-        admin.require_auth();
-        let stored_admin = Self::get_admin(&env).expect("Admin must be set to toggle pause");
-        if admin != stored_admin {
-            panic!("Only admin can toggle pause");
-        }
-        env.storage().persistent().set(&DataKey::Paused, &paused);
+    /// Propose a new admin. Only the current admin can nominate a successor.
+    pub fn propose_admin(env: Env, admin: Address, new_admin: Address) {
+        Self::require_current_admin(&env, &admin);
+        Self::set_pending_admin_internal(&env, &new_admin);
 
         env.events().publish(
-            (Symbol::new(&env, "PauseToggled"),),
-            (admin, paused),
+            (Symbol::new(&env, "AdminTransferProposed"),),
+            (admin, new_admin),
         );
     }
 
+    /// Accept a pending admin transfer.
+    pub fn accept_admin(env: Env, new_admin: Address) {
+        new_admin.require_auth();
+        let pending_admin = Self::get_pending_admin(&env).expect("No admin transfer proposed");
+        if new_admin != pending_admin {
+            panic!("Only pending admin can accept transfer");
+        }
+
+        let previous_admin = Self::get_admin(&env).expect("Admin must be set");
+        Self::set_admin_internal(&env, &new_admin);
+        Self::remove_pending_admin_internal(&env);
+
+        env.events().publish(
+            (Symbol::new(&env, "AdminTransferred"),),
+            (previous_admin, new_admin),
+        );
+    }
+
+    /// Renounce admin rights and clear any in-flight transfer.
+    pub fn renounce_admin(env: Env, admin: Address) {
+        Self::require_current_admin(&env, &admin);
+        Self::remove_admin_internal(&env);
+        Self::remove_pending_admin_internal(&env);
+
+        env.events()
+            .publish((Symbol::new(&env, "AdminRenounced"),), admin);
+    }
+
+    /// Toggle contract pause state. Only admin can toggle pause.
+    pub fn toggle_pause(env: Env, admin: Address, paused: bool) {
+        Self::require_current_admin(&env, &admin);
+        env.storage().persistent().set(&DataKey::Paused, &paused);
+
+        env.events()
+            .publish((Symbol::new(&env, "PauseToggled"),), (admin, paused));
+    }
+
     /// Revoke unvested schedule by recipient/unlock time.
-    pub fn revoke(
-        env: Env,
-        caller: Address,
-        recipient: Address,
-        token: Address,
-        unlock_time: u64,
-    ) {
+    pub fn revoke(env: Env, caller: Address, recipient: Address, token: Address, unlock_time: u64) {
         Self::panic_if_paused(&env);
         caller.require_auth();
 
@@ -339,7 +396,11 @@ impl BatchVestingContract {
         }
 
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&env.current_contract_address(), &recipient, &amount_to_transfer);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &recipient,
+            &amount_to_transfer,
+        );
 
         env.events().publish(
             (Symbol::new(&env, "VestingClaimed"),),
