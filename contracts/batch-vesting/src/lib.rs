@@ -15,7 +15,8 @@ pub struct VestingData {
 
 #[contracttype]
 pub enum DataKey {
-    Vesting(Address), // Recipient address
+    Vesting(Address, u32), // (recipient, index) — granular per-schedule key
+    VestingCount(Address), // total number of schedules for a recipient
     Admin,
     Paused,
 }
@@ -45,6 +46,59 @@ impl BatchVestingContract {
     fn panic_if_paused(env: &Env) {
         if Self::is_paused(env) {
             panic!("Contract is paused");
+        }
+    }
+
+    /// Returns the current schedule count for a recipient.
+    fn get_count(env: &Env, recipient: &Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::VestingCount(recipient.clone()))
+            .unwrap_or(0u32)
+    }
+
+    /// Appends a new vesting schedule for a recipient and returns its index.
+    fn push_vesting(env: &Env, recipient: &Address, data: &VestingData) -> u32 {
+        let idx = Self::get_count(env, recipient);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Vesting(recipient.clone(), idx), data);
+        env.storage()
+            .persistent()
+            .set(&DataKey::VestingCount(recipient.clone()), &(idx + 1));
+        idx
+    }
+
+    /// Reads a single vesting schedule by index. Panics if missing.
+    fn get_vesting(env: &Env, recipient: &Address, idx: u32) -> VestingData {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Vesting(recipient.clone(), idx))
+            .unwrap_or_else(|| panic!("Vesting schedule not found"))
+    }
+
+    /// Removes a schedule by swapping it with the last entry (O(1) removal).
+    fn remove_vesting(env: &Env, recipient: &Address, idx: u32) {
+        let count = Self::get_count(env, recipient);
+        let last = count - 1;
+        if idx != last {
+            // Move last entry into the removed slot
+            let last_data = Self::get_vesting(env, recipient, last);
+            env.storage()
+                .persistent()
+                .set(&DataKey::Vesting(recipient.clone(), idx), &last_data);
+        }
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Vesting(recipient.clone(), last));
+        if last == 0 {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::VestingCount(recipient.clone()));
+        } else {
+            env.storage()
+                .persistent()
+                .set(&DataKey::VestingCount(recipient.clone()), &last);
         }
     }
 }
@@ -83,20 +137,15 @@ impl BatchVestingContract {
 
             total_amount = total_amount.checked_add(amount).unwrap();
 
-            let key = DataKey::Vesting(recipient.clone());
-            let mut vestings: Vec<VestingData> = env
-                .storage()
-                .persistent()
-                .get(&key)
-                .unwrap_or_else(|| Vec::new(&env));
-
-            vestings.push_back(VestingData {
-                amount,
-                unlock_time,
-                sender: sender.clone(),
-            });
-
-            env.storage().persistent().set(&key, &vestings);
+            Self::push_vesting(
+                &env,
+                &recipient,
+                &VestingData {
+                    amount,
+                    unlock_time,
+                    sender: sender.clone(),
+                },
+            );
 
             env.events().publish(
                 (Symbol::new(&env, "VestingDeposited"),),
@@ -143,59 +192,41 @@ impl BatchVestingContract {
         Self::panic_if_paused(&env);
         caller.require_auth();
 
-        let key = DataKey::Vesting(recipient.clone());
-        let vestings: Vec<VestingData> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| panic!("No vesting found for recipient"));
+        let count = Self::get_count(&env, &recipient);
+        if count == 0 {
+            panic!("No vesting found for recipient");
+        }
 
         let current_time = env.ledger().timestamp();
-
-        let mut remaining = Vec::new(&env);
+        let mut found_idx: Option<u32> = None;
         let mut revoked_amount: i128 = 0;
         let mut schedule_sender: Option<Address> = None;
-        let mut item_found = false;
 
-        for i in 0..vestings.len() {
-            let vesting = vestings.get(i).unwrap();
-            if vesting.unlock_time == unlock_time && !item_found {
-                item_found = true;
+        for i in 0..count {
+            let vesting = Self::get_vesting(&env, &recipient, i);
+            if vesting.unlock_time == unlock_time {
                 if current_time >= vesting.unlock_time {
                     panic!("Cannot revoke already vested funds");
                 }
                 if !Self::is_authorized(&env, &caller, &vesting.sender) {
                     panic!("Unauthorized revoke attempt");
                 }
-
                 revoked_amount = vesting.amount;
                 schedule_sender = Some(vesting.sender.clone());
-            } else {
-                remaining.push_back(vesting);
+                found_idx = Some(i);
+                break;
             }
         }
 
-        if !item_found {
+        if found_idx.is_none() {
             panic!("Vesting schedule not found");
         }
 
-        if revoked_amount <= 0 {
-            panic!("Nothing to revoke");
-        }
-
-        if remaining.is_empty() {
-            env.storage().persistent().remove(&key);
-        } else {
-            env.storage().persistent().set(&key, &remaining);
-        }
+        Self::remove_vesting(&env, &recipient, found_idx.unwrap());
 
         let sender = schedule_sender.unwrap();
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &sender,
-            &revoked_amount,
-        );
+        token_client.transfer(&env.current_contract_address(), &sender, &revoked_amount);
 
         env.events().publish(
             (Symbol::new(&env, "VestingRevoked"),),
@@ -218,58 +249,41 @@ impl BatchVestingContract {
 
         for i in 0..recipients.len() {
             let recipient = recipients.get(i).unwrap();
-            let key = DataKey::Vesting(recipient.clone());
-            
-            let vestings: Vec<VestingData> = env
-                .storage()
-                .persistent()
-                .get(&key)
-                .unwrap_or_else(|| panic!("No vesting found for recipient"));
 
-            let mut remaining = Vec::new(&env);
+            let count = Self::get_count(&env, &recipient);
+            if count == 0 {
+                panic!("No vesting found for recipient");
+            }
+
+            let mut found_idx: Option<u32> = None;
             let mut revoked_amount: i128 = 0;
             let mut schedule_sender: Option<Address> = None;
-            let mut item_found = false;
 
-            for j in 0..vestings.len() {
-                let vesting = vestings.get(j).unwrap();
-                if vesting.unlock_time == unlock_time && !item_found {
-                    item_found = true;
+            for j in 0..count {
+                let vesting = Self::get_vesting(&env, &recipient, j);
+                if vesting.unlock_time == unlock_time {
                     if current_time >= vesting.unlock_time {
                         panic!("Cannot revoke already vested funds");
                     }
                     if !Self::is_authorized(&env, &caller, &vesting.sender) {
                         panic!("Unauthorized revoke attempt");
                     }
-
                     revoked_amount = vesting.amount;
                     schedule_sender = Some(vesting.sender.clone());
-                } else {
-                    remaining.push_back(vesting);
+                    found_idx = Some(j);
+                    break;
                 }
             }
 
-            if !item_found {
+            if found_idx.is_none() {
                 panic!("Vesting schedule not found");
             }
 
-            if revoked_amount <= 0 {
-                panic!("Nothing to revoke");
-            }
-
-            if remaining.is_empty() {
-                env.storage().persistent().remove(&key);
-            } else {
-                env.storage().persistent().set(&key, &remaining);
-            }
+            Self::remove_vesting(&env, &recipient, found_idx.unwrap());
 
             let sender = schedule_sender.unwrap();
             let token_client = token::Client::new(&env, &token);
-            token_client.transfer(
-                &env.current_contract_address(),
-                &sender,
-                &revoked_amount,
-            );
+            token_client.transfer(&env.current_contract_address(), &sender, &revoked_amount);
 
             env.events().publish(
                 (Symbol::new(&env, "VestingRevoked"),),
@@ -288,24 +302,21 @@ impl BatchVestingContract {
         Self::panic_if_paused(&env);
         recipient.require_auth();
 
-        let key = DataKey::Vesting(recipient.clone());
-        let vestings: Vec<VestingData> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| panic!("No vesting found for recipient"));
+        let count = Self::get_count(&env, &recipient);
+        if count == 0 {
+            panic!("No vesting found for recipient");
+        }
 
         let current_time = env.ledger().timestamp();
-
         let mut amount_to_transfer: i128 = 0;
-        let mut remaining = Vec::new(&env);
 
-        for i in 0..vestings.len() {
-            let vesting = vestings.get(i).unwrap();
+        // Collect claimable indices first (iterate in reverse to safely remove via swap)
+        let mut claimable: Vec<u32> = Vec::new(&env);
+        for i in 0..count {
+            let vesting = Self::get_vesting(&env, &recipient, i);
             if current_time >= vesting.unlock_time {
                 amount_to_transfer = amount_to_transfer.checked_add(vesting.amount).unwrap();
-            } else {
-                remaining.push_back(vesting);
+                claimable.push_back(i);
             }
         }
 
@@ -313,18 +324,22 @@ impl BatchVestingContract {
             panic!("Vesting is currently locked");
         }
 
-        if remaining.is_empty() {
-            env.storage().persistent().remove(&key);
-        } else {
-            env.storage().persistent().set(&key, &remaining);
+        // Remove claimable entries in reverse index order to keep swap-removal consistent
+        let claimable_len = claimable.len();
+        for k in (0..claimable_len).rev() {
+            let idx = claimable.get(k).unwrap();
+            // Re-read current count since it shrinks with each removal
+            let current_count = Self::get_count(&env, &recipient);
+            // The swap-remove may have moved a previously-unvisited entry into `idx`.
+            // Since we collected indices before any removal and iterate in reverse,
+            // indices >= current removal point are still valid.
+            if idx < current_count {
+                Self::remove_vesting(&env, &recipient, idx);
+            }
         }
 
         let token_client = token::Client::new(&env, &token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &recipient,
-            &amount_to_transfer,
-        );
+        token_client.transfer(&env.current_contract_address(), &recipient, &amount_to_transfer);
 
         env.events().publish(
             (Symbol::new(&env, "VestingClaimed"),),
