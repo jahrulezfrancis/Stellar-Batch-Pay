@@ -1,6 +1,7 @@
 'use client';
 
 import { PaymentInstruction } from '@/lib/stellar/types';
+import { formatAmount } from '@/lib/stellar';
 
 interface BatchSummaryProps {
   payments: PaymentInstruction[];
@@ -28,7 +29,7 @@ export function BatchSummary({ payments }: BatchSummaryProps) {
         
         <div className="bg-card p-4 rounded-lg border border-border">
           <p className="text-muted-foreground text-sm">Total XLM Amount</p>
-          <p className="text-2xl font-bold">{totalAmount.toFixed(2)}</p>
+          <p className="text-2xl font-bold">{formatAmount(totalAmount)}</p>
         </div>
       </div>
 
@@ -41,7 +42,7 @@ export function BatchSummary({ payments }: BatchSummaryProps) {
               <div key={asset} className="flex justify-between text-sm">
                 <span className="text-foreground">{asset}</span>
                 <div>
-                  <span className="font-mono mr-2">{amount.toFixed(2)}</span>
+                  <span className="font-mono mr-2">{formatAmount(amount)}</span>
                   <span className="text-muted-foreground">({items.length} payments)</span>
                 </div>
               </div>

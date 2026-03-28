@@ -90,3 +90,28 @@ export interface BuildBatchResult {
   network: "testnet" | "mainnet";
   publicKey: string;
 }
+
+/** A single entry from Horizon's account.balances array */
+export interface HorizonBalance {
+  asset_type: string;
+  asset_code?: string;
+  asset_issuer?: string;
+  balance: string;
+}
+
+/** Map of asset key ("XLM" or "CODE:ISSUER") to numeric balance */
+export type BalancesMap = Record<string, number>;
+
+/** Per-asset validation result */
+export interface AssetBalanceCheck {
+  asset_key: string;
+  required: number;
+  available: number;
+  sufficient: boolean;
+}
+
+/** Aggregate result for a full batch balance check */
+export interface BalanceValidationResult {
+  all_sufficient: boolean;
+  checks: AssetBalanceCheck[];
+}

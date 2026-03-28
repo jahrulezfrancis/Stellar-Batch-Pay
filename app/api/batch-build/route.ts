@@ -20,7 +20,7 @@ import {
 } from "stellar-sdk";
 import { validatePaymentInstructions } from "@/lib/stellar";
 import { createBatches, parseAsset } from "@/lib/stellar/batcher";
-import { validatePaymentInstruction } from "@/lib/stellar/validator";
+import { validatePaymentInstruction, buildBalancesMap, validateBalances } from "@/lib/stellar/validator";
 import type { PaymentInstruction } from "@/lib/stellar/types";
 
 interface RequestBody {
@@ -86,6 +86,23 @@ export async function POST(request: NextRequest) {
         const server = new Horizon.Server(serverUrl);
 
         const sourceAccount = await server.loadAccount(publicKey);
+
+        // Validate source account has sufficient balance for all assets
+        const balancesMap = buildBalancesMap(
+            sourceAccount.balances as { asset_type: string; asset_code?: string; asset_issuer?: string; balance: string }[],
+        );
+        const balanceCheck = validateBalances(payments, balancesMap);
+        if (!balanceCheck.all_sufficient) {
+            const insufficient = balanceCheck.checks
+                .filter((c) => !c.sufficient)
+                .map((c) => `${c.asset_key}: need ${c.required}, have ${c.available}`)
+                .join("; ");
+            return NextResponse.json(
+                { error: `Insufficient balance: ${insufficient}` },
+                { status: 400 },
+            );
+        }
+
         const batches = createBatches(payments, MAX_OPS, { network });
         const networkPassphrase =
             network === "testnet" ? Networks.TESTNET : Networks.PUBLIC;

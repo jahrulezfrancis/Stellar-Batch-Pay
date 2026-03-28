@@ -17,7 +17,7 @@ import {
 } from 'stellar-sdk';
 import { PaymentInstruction, BatchResult, PaymentResult, BatchConfig } from './types';
 import { createBatches, parseAsset } from './batcher';
-import { validatePaymentInstruction, validateBatchConfig } from './validator';
+import { validatePaymentInstruction, validateBatchConfig, buildBalancesMap, validateBalances } from './validator';
 
 export class StellarService {
   private keypair: Keypair;
@@ -51,8 +51,20 @@ export class StellarService {
     const startTime = new Date();
 
     try {
-      // Get source account
+      // Get source account and validate balances
       const sourceAccount = await this.server.loadAccount(this.keypair.publicKey());
+
+      const balancesMap = buildBalancesMap(
+        sourceAccount.balances as { asset_type: string; asset_code?: string; asset_issuer?: string; balance: string }[],
+      );
+      const balanceCheck = validateBalances(instructions, balancesMap);
+      if (!balanceCheck.all_sufficient) {
+        const insufficient = balanceCheck.checks
+          .filter(c => !c.sufficient)
+          .map(c => `${c.asset_key}: need ${c.required}, have ${c.available}`)
+          .join('; ');
+        throw new Error(`Insufficient balance: ${insufficient}`);
+      }
 
       // Batch payments
       const batches = createBatches(

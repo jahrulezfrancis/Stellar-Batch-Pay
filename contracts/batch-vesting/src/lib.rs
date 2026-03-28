@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, String, Symbol, Vec};
 
 #[contract]
 pub struct BatchVestingContract;
@@ -17,6 +17,7 @@ pub struct VestingData {
 pub enum DataKey {
     Vesting(Address), // Recipient address
     Admin,
+    Paused,
 }
 
 impl BatchVestingContract {
@@ -36,6 +37,16 @@ impl BatchVestingContract {
         };
         is_sender || is_admin
     }
+
+    fn is_paused(env: &Env) -> bool {
+        env.storage().persistent().get(&DataKey::Paused).unwrap_or(false)
+    }
+
+    fn panic_if_paused(env: &Env) {
+        if Self::is_paused(env) {
+            panic!("Contract is paused");
+        }
+    }
 }
 
 #[contractimpl]
@@ -49,10 +60,15 @@ impl BatchVestingContract {
         amounts: Vec<i128>,
         unlock_time: u64,
     ) {
+        Self::panic_if_paused(&env);
         sender.require_auth();
 
         if recipients.len() != amounts.len() {
             panic!("Recipients and amounts length mismatch");
+        }
+
+        if unlock_time <= env.ledger().timestamp() {
+            panic!("Unlock time must be in the future");
         }
 
         let mut total_amount: i128 = 0;
@@ -101,6 +117,21 @@ impl BatchVestingContract {
         Self::set_admin_internal(&env, &admin);
     }
 
+    /// Toggle contract pause state. Only admin can toggle pause.
+    pub fn toggle_pause(env: Env, admin: Address, paused: bool) {
+        admin.require_auth();
+        let stored_admin = Self::get_admin(&env).expect("Admin must be set to toggle pause");
+        if admin != stored_admin {
+            panic!("Only admin can toggle pause");
+        }
+        env.storage().persistent().set(&DataKey::Paused, &paused);
+
+        env.events().publish(
+            (Symbol::new(&env, "PauseToggled"),),
+            (admin, paused),
+        );
+    }
+
     /// Revoke unvested schedule by recipient/unlock time.
     pub fn revoke(
         env: Env,
@@ -109,6 +140,7 @@ impl BatchVestingContract {
         token: Address,
         unlock_time: u64,
     ) {
+        Self::panic_if_paused(&env);
         caller.require_auth();
 
         let key = DataKey::Vesting(recipient.clone());
@@ -179,6 +211,7 @@ impl BatchVestingContract {
         token: Address,
         unlock_time: u64,
     ) {
+        Self::panic_if_paused(&env);
         caller.require_auth();
 
         let current_time = env.ledger().timestamp();
@@ -248,8 +281,14 @@ impl BatchVestingContract {
         );
     }
 
+    /// Return the contract version string.
+    pub fn version(env: Env) -> String {
+        String::from_str(&env, "1.0.0")
+    }
+
     /// Claim the vested funds.
     pub fn claim(env: Env, recipient: Address, token: Address) {
+        Self::panic_if_paused(&env);
         recipient.require_auth();
 
         let key = DataKey::Vesting(recipient.clone());

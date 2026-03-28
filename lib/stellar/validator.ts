@@ -4,7 +4,7 @@
 
 import { StrKey } from 'stellar-sdk';
 
-import { PaymentInstruction, BatchConfig } from './types';
+import { PaymentInstruction, BatchConfig, HorizonBalance, BalancesMap, BalanceValidationResult } from './types';
 
 function isValidPublicKey(value: string): boolean {
   return StrKey.isValidEd25519PublicKey(value);
@@ -93,4 +93,55 @@ export function validatePaymentInstructions(instructions: PaymentInstruction[]):
     valid: errors.size === 0,
     errors,
   };
+}
+
+/**
+ * Build a lookup map from a Horizon account's balances array.
+ * Native XLM is keyed as "XLM"; non-native assets as "CODE:ISSUER".
+ */
+export function buildBalancesMap(balances: HorizonBalance[]): BalancesMap {
+  const map: BalancesMap = {};
+  for (const entry of balances) {
+    const key = entry.asset_type === 'native'
+      ? 'XLM'
+      : `${entry.asset_code}:${entry.asset_issuer}`;
+    map[key] = Number(entry.balance);
+  }
+  return map;
+}
+
+/**
+ * Resolve the asset key used in the balances map for a payment instruction.
+ */
+export function resolveAssetKey(asset: string): string {
+  return asset === 'XLM' ? 'XLM' : asset; // already in "CODE:ISSUER" format
+}
+
+/**
+ * Validate that the source account has sufficient balance for every asset
+ * across all payment instructions. Multiple payments of the same asset are
+ * aggregated so cumulative spend is checked.
+ */
+export function validateBalances(
+  instructions: PaymentInstruction[],
+  balancesMap: BalancesMap,
+): BalanceValidationResult {
+  // Aggregate required amounts per asset
+  const requiredByAsset: Record<string, number> = {};
+  for (const instruction of instructions) {
+    const key = resolveAssetKey(instruction.asset);
+    requiredByAsset[key] = (requiredByAsset[key] ?? 0) + Number(instruction.amount);
+  }
+
+  const checks = [];
+  let allSufficient = true;
+
+  for (const [assetKey, required] of Object.entries(requiredByAsset)) {
+    const available = balancesMap[assetKey] ?? 0; // missing trustline → zero
+    const sufficient = available >= required;
+    if (!sufficient) allSufficient = false;
+    checks.push({ asset_key: assetKey, required, available, sufficient });
+  }
+
+  return { all_sufficient: allSufficient, checks };
 }
