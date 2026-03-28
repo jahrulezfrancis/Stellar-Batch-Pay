@@ -106,7 +106,7 @@ fn test_revoke_by_sender() {
 }
 
 #[test]
-#[should_panic(expected = "No vesting found for recipient")]
+#[should_panic(expected = "HostError: Error(Contract, #2)")]
 fn test_claim_after_revoke_fails() {
     let env = Env::default();
     env.mock_all_auths();
@@ -176,7 +176,7 @@ fn test_revoke_by_admin() {
 }
 
 #[test]
-#[should_panic(expected = "Unauthorized revoke attempt")]
+#[should_panic(expected = "HostError: Error(Contract, #9)")]
 fn test_revoke_unauthorized() {
     let env = Env::default();
     env.mock_all_auths();
@@ -210,7 +210,7 @@ fn test_revoke_unauthorized() {
 }
 
 #[test]
-#[should_panic(expected = "Cannot revoke already vested funds")]
+#[should_panic(expected = "HostError: Error(Contract, #8)")]
 fn test_revoke_already_vested() {
     let env = Env::default();
     env.mock_all_auths();
@@ -243,7 +243,7 @@ fn test_revoke_already_vested() {
 }
 
 #[test]
-#[should_panic(expected = "Vesting is currently locked")]
+#[should_panic(expected = "HostError: Error(Contract, #10)")]
 fn test_claim_too_early() {
     let env = Env::default();
     env.mock_all_auths();
@@ -293,7 +293,7 @@ fn test_claim_unauthorized() {
 }
 
 #[test]
-#[should_panic(expected = "No vesting found for recipient")]
+#[should_panic(expected = "HostError: Error(Contract, #2)")]
 fn test_claim_no_vesting() {
     let env = Env::default();
     env.mock_all_auths();
@@ -627,7 +627,7 @@ fn test_batch_revoke_multiple_senders() {
 }
 
 #[test]
-#[should_panic(expected = "Unauthorized revoke attempt")]
+#[should_panic(expected = "HostError: Error(Contract, #9)")]
 fn test_batch_revoke_unauthorized() {
     let env = Env::default();
     env.mock_all_auths();
@@ -662,7 +662,7 @@ fn test_batch_revoke_unauthorized() {
 }
 
 #[test]
-#[should_panic(expected = "Cannot revoke already vested funds")]
+#[should_panic(expected = "HostError: Error(Contract, #8)")]
 fn test_batch_revoke_already_vested() {
     let env = Env::default();
     env.mock_all_auths();
@@ -696,7 +696,7 @@ fn test_batch_revoke_already_vested() {
 }
 
 #[test]
-#[should_panic(expected = "No vesting found for recipient")]
+#[should_panic(expected = "HostError: Error(Contract, #2)")]
 fn test_batch_revoke_no_vesting() {
     let env = Env::default();
     env.mock_all_auths();

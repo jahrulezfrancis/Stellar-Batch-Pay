@@ -21,6 +21,22 @@ pub enum DataKey {
     Paused,
 }
 
+#[soroban_sdk::contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum VestingError {
+    Paused = 1,
+    NotFound = 2,
+    LengthMismatch = 3,
+    InvalidUnlockTime = 4,
+    InvalidAmount = 5,
+    AdminAlreadySet = 6,
+    NotAdmin = 7,
+    AlreadyVested = 8,
+    Unauthorized = 9,
+    StillLocked = 10,
+}
+
 impl BatchVestingContract {
     fn get_admin(env: &Env) -> Option<Address> {
         env.storage().persistent().get(&DataKey::Admin)
@@ -45,7 +61,7 @@ impl BatchVestingContract {
 
     fn panic_if_paused(env: &Env) {
         if Self::is_paused(env) {
-            panic!("Contract is paused");
+            soroban_sdk::panic_with_error!(env, VestingError::Paused);
         }
     }
 
@@ -74,7 +90,7 @@ impl BatchVestingContract {
         env.storage()
             .persistent()
             .get(&DataKey::Vesting(recipient.clone(), idx))
-            .unwrap_or_else(|| panic!("Vesting schedule not found"))
+            .unwrap_or_else(|| soroban_sdk::panic_with_error!(env, VestingError::NotFound))
     }
 
     /// Removes a schedule by swapping it with the last entry (O(1) removal).
@@ -118,11 +134,11 @@ impl BatchVestingContract {
         sender.require_auth();
 
         if recipients.len() != amounts.len() {
-            panic!("Recipients and amounts length mismatch");
+            soroban_sdk::panic_with_error!(&env, VestingError::LengthMismatch);
         }
 
         if unlock_time <= env.ledger().timestamp() {
-            panic!("Unlock time must be in the future");
+            soroban_sdk::panic_with_error!(&env, VestingError::InvalidUnlockTime);
         }
 
         let mut total_amount: i128 = 0;
@@ -132,7 +148,7 @@ impl BatchVestingContract {
             let amount = amounts.get(i).unwrap();
 
             if amount <= 0 {
-                panic!("Amount must be positive");
+                soroban_sdk::panic_with_error!(&env, VestingError::InvalidAmount);
             }
 
             total_amount = total_amount.checked_add(amount).unwrap();
@@ -161,7 +177,7 @@ impl BatchVestingContract {
     pub fn set_admin(env: Env, admin: Address) {
         admin.require_auth();
         if Self::get_admin(&env).is_some() {
-            panic!("Admin already set");
+            soroban_sdk::panic_with_error!(&env, VestingError::AdminAlreadySet);
         }
         Self::set_admin_internal(&env, &admin);
     }
@@ -171,7 +187,7 @@ impl BatchVestingContract {
         admin.require_auth();
         let stored_admin = Self::get_admin(&env).expect("Admin must be set to toggle pause");
         if admin != stored_admin {
-            panic!("Only admin can toggle pause");
+            soroban_sdk::panic_with_error!(&env, VestingError::NotAdmin);
         }
         env.storage().persistent().set(&DataKey::Paused, &paused);
 
@@ -194,7 +210,7 @@ impl BatchVestingContract {
 
         let count = Self::get_count(&env, &recipient);
         if count == 0 {
-            panic!("No vesting found for recipient");
+            soroban_sdk::panic_with_error!(&env, VestingError::NotFound);
         }
 
         let current_time = env.ledger().timestamp();
@@ -206,10 +222,10 @@ impl BatchVestingContract {
             let vesting = Self::get_vesting(&env, &recipient, i);
             if vesting.unlock_time == unlock_time {
                 if current_time >= vesting.unlock_time {
-                    panic!("Cannot revoke already vested funds");
+                    soroban_sdk::panic_with_error!(&env, VestingError::AlreadyVested);
                 }
                 if !Self::is_authorized(&env, &caller, &vesting.sender) {
-                    panic!("Unauthorized revoke attempt");
+                    soroban_sdk::panic_with_error!(&env, VestingError::Unauthorized);
                 }
                 revoked_amount = vesting.amount;
                 schedule_sender = Some(vesting.sender.clone());
@@ -219,7 +235,7 @@ impl BatchVestingContract {
         }
 
         if found_idx.is_none() {
-            panic!("Vesting schedule not found");
+            soroban_sdk::panic_with_error!(&env, VestingError::NotFound);
         }
 
         Self::remove_vesting(&env, &recipient, found_idx.unwrap());
@@ -252,7 +268,7 @@ impl BatchVestingContract {
 
             let count = Self::get_count(&env, &recipient);
             if count == 0 {
-                panic!("No vesting found for recipient");
+                soroban_sdk::panic_with_error!(&env, VestingError::NotFound);
             }
 
             let mut found_idx: Option<u32> = None;
@@ -263,10 +279,10 @@ impl BatchVestingContract {
                 let vesting = Self::get_vesting(&env, &recipient, j);
                 if vesting.unlock_time == unlock_time {
                     if current_time >= vesting.unlock_time {
-                        panic!("Cannot revoke already vested funds");
+                        soroban_sdk::panic_with_error!(&env, VestingError::AlreadyVested);
                     }
                     if !Self::is_authorized(&env, &caller, &vesting.sender) {
-                        panic!("Unauthorized revoke attempt");
+                        soroban_sdk::panic_with_error!(&env, VestingError::Unauthorized);
                     }
                     revoked_amount = vesting.amount;
                     schedule_sender = Some(vesting.sender.clone());
@@ -276,7 +292,7 @@ impl BatchVestingContract {
             }
 
             if found_idx.is_none() {
-                panic!("Vesting schedule not found");
+                soroban_sdk::panic_with_error!(&env, VestingError::NotFound);
             }
 
             Self::remove_vesting(&env, &recipient, found_idx.unwrap());
@@ -304,7 +320,7 @@ impl BatchVestingContract {
 
         let count = Self::get_count(&env, &recipient);
         if count == 0 {
-            panic!("No vesting found for recipient");
+            soroban_sdk::panic_with_error!(&env, VestingError::NotFound);
         }
 
         let current_time = env.ledger().timestamp();
@@ -321,7 +337,7 @@ impl BatchVestingContract {
         }
 
         if amount_to_transfer == 0 {
-            panic!("Vesting is currently locked");
+            soroban_sdk::panic_with_error!(&env, VestingError::StillLocked);
         }
 
         // Remove claimable entries in reverse index order to keep swap-removal consistent
