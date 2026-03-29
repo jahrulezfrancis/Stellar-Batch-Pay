@@ -252,6 +252,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "token"
+                      },
+                      "val": {
+                        "address": "CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "unlock_time"
                       },
                       "val": {
@@ -264,7 +272,7 @@
             },
             "ext": "v0"
           },
-          4095
+          518400
         ]
       ],
       [
@@ -309,7 +317,7 @@
             },
             "ext": "v0"
           },
-          4095
+          518400
         ]
       ],
       [

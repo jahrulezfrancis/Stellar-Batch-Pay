@@ -149,7 +149,7 @@ fn test_claim_after_revoke_fails() {
     env.ledger().with_mut(|li| {
         li.timestamp = 500;
     });
-    client.revoke(&sender, &recipient, &token.address, &unlock_time);
+    client.revoke(&sender, &recipient, &token.address, &0);
 
     client.claim(&recipient, &token.address);
 }
@@ -255,7 +255,8 @@ fn test_revoke_already_vested() {
         li.timestamp = 1000;
     });
 
-    client.revoke(&sender, &recipient, &token.address, &unlock_time);
+    // Attempt revoke after unlock_time has passed — must fail with AlreadyVested (#8)
+    client.revoke(&sender, &recipient, &token.address, &0);
 }
 
 #[test]
@@ -612,7 +613,11 @@ fn test_batch_revoke_by_admin() {
         li.timestamp = 500;
     });
 
-    let results = client.batch_revoke(&admin, &recipients, &token.address, &unlock_time);
+    let revoke_requests = Vec::from_array(&env, [
+        RevokeRequest { recipient: recipient1.clone(), index: 0 },
+        RevokeRequest { recipient: recipient2.clone(), index: 0 },
+    ]);
+    let results = client.batch_revoke(&admin, &revoke_requests, &token.address);
 
     assert_eq!(results.get(0).unwrap(), true);
     assert_eq!(results.get(1).unwrap(), true);
@@ -722,7 +727,6 @@ fn test_batch_revoke_unauthorized() {
         li.timestamp = 500;
     });
 
-    // Attacker is not sender or admin, so both entries fail
     let revoke_requests = Vec::from_array(&env, [
         RevokeRequest { recipient: recipient1.clone(), index: 0 },
         RevokeRequest { recipient: recipient2.clone(), index: 0 }
@@ -766,7 +770,11 @@ fn test_batch_revoke_already_vested() {
         li.timestamp = 1000;
     });
 
-    let results = client.batch_revoke(&sender, &recipients, &token.address, &unlock_time);
+    let revoke_requests = Vec::from_array(&env, [
+        RevokeRequest { recipient: recipient1.clone(), index: 0 },
+        RevokeRequest { recipient: recipient2.clone(), index: 0 },
+    ]);
+    let results = client.batch_revoke(&sender, &revoke_requests, &token.address);
     assert_eq!(results.get(0).unwrap(), false, "Already-vested entry should return false");
     assert_eq!(results.get(1).unwrap(), false, "Already-vested entry should return false");
     // Funds are still in contract, not revoked
@@ -788,11 +796,13 @@ fn test_batch_revoke_no_vesting() {
     let token_admin = Address::generate(&env);
     let (token, _) = create_token_contract(&env, &token_admin);
 
-    let recipients = Vec::from_array(&env, [recipient1.clone(), recipient2.clone()]);
-    let unlock_time = 1000;
+    let revoke_requests = Vec::from_array(&env, [
+        RevokeRequest { recipient: recipient1.clone(), index: 0 },
+        RevokeRequest { recipient: recipient2.clone(), index: 0 },
+    ]);
 
     // Neither recipient has any vesting — both should return false
-    let results = client.batch_revoke(&sender, &recipients, &token.address, &unlock_time);
+    let results = client.batch_revoke(&sender, &revoke_requests, &token.address);
     assert_eq!(results.get(0).unwrap(), false, "No-vesting entry should return false");
     assert_eq!(results.get(1).unwrap(), false, "No-vesting entry should return false");
 }
@@ -827,7 +837,11 @@ fn test_batch_revoke_events_emission() {
         li.timestamp = 500;
     });
 
-    let results = client.batch_revoke(&sender, &recipients, &token.address, &unlock_time);
+    let revoke_requests = Vec::from_array(&env, [
+        RevokeRequest { recipient: recipient1.clone(), index: 0 },
+        RevokeRequest { recipient: recipient2.clone(), index: 0 },
+    ]);
+    let results = client.batch_revoke(&sender, &revoke_requests, &token.address);
     assert_eq!(results.get(0).unwrap(), true);
     assert_eq!(results.get(1).unwrap(), true);
 
@@ -894,8 +908,10 @@ fn test_batch_revoke_partial_recipients() {
         li.timestamp = 500;
     });
 
-    let revoke_recipients = Vec::from_array(&env, [recipient1.clone()]);
-    let results = client.batch_revoke(&sender, &revoke_recipients, &token.address, &unlock_time);
+    let revoke_requests = Vec::from_array(&env, [
+        RevokeRequest { recipient: recipient1.clone(), index: 0 },
+    ]);
+    let results = client.batch_revoke(&sender, &revoke_requests, &token.address);
     assert_eq!(results.get(0).unwrap(), true);
 
     assert_eq!(token.balance(&sender), 500);
@@ -915,8 +931,6 @@ fn test_batch_revoke_partial_recipients() {
 #[test]
 #[should_panic(expected = "Batch size exceeds MAX_BATCH_SIZE")]
 fn test_batch_revoke_rejects_oversized_batch() {
-#[should_panic(expected = "Duplicate recipients not allowed")]
-fn test_deposit_duplicate_recipients() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -925,40 +939,18 @@ fn test_deposit_duplicate_recipients() {
 
     let sender = Address::generate(&env);
     let token_admin = Address::generate(&env);
-    let (token, token_admin_client) = create_token_contract(&env, &token_admin);
+    let (token, _) = create_token_contract(&env, &token_admin);
 
-    let recipients = over_limit_recipients(&env);
-    let amounts = matching_amounts(&env, recipients.len(), 1);
-    let total_amount = i128::from(recipients.len());
-    let unlock_time = 1000;
+    // Build an over-limit Vec<RevokeRequest>
+    let mut requests: Vec<RevokeRequest> = Vec::new(&env);
+    for _ in 0..(MAX_BATCH_SIZE + 1) {
+        requests.push_back(RevokeRequest {
+            recipient: Address::generate(&env),
+            index: 0,
+        });
+    }
 
-    token_admin_client.mint(&sender, &total_amount);
-    let recipient1 = Address::generate(&env);
-    let recipient2 = Address::generate(&env);
-
-    let token_admin = Address::generate(&env);
-    let (token, token_admin_client) = create_token_contract(&env, &token_admin);
-
-    token_admin_client.mint(&sender, &1000);
-
-    let recipients = Vec::from_array(
-        &env,
-        [recipient1.clone(), recipient2.clone(), recipient1.clone()],
-    );
-    let amounts = Vec::from_array(&env, [100, 200, 150]);
-    let unlock_time = 1000;
-
-    env.ledger().with_mut(|li| {
-        li.timestamp = 0;
-    });
-
-    client.deposit(&sender, &token.address, &recipients, &amounts, &unlock_time);
-
-    env.ledger().with_mut(|li| {
-        li.timestamp = 500;
-    });
-
-    client.batch_revoke(&sender, &recipients, &token.address, &unlock_time);
+    client.batch_revoke(&sender, &requests, &token.address);
 }
 
 #[test]
@@ -1020,18 +1012,18 @@ fn test_batch_revoke_partial_success() {
         li.timestamp = 1000; // already vested
     });
 
-    let revoke_recipients = Vec::from_array(
+    let revoke_requests = Vec::from_array(
         &env,
         [
-            recipient_valid.clone(),
-            recipient_novesting.clone(),
-            recipient_vested.clone(),
-            recipient_unauth.clone(),
+            RevokeRequest { recipient: recipient_valid.clone(), index: 0 },
+            RevokeRequest { recipient: recipient_novesting.clone(), index: 0 },
+            RevokeRequest { recipient: recipient_vested.clone(), index: 0 },
+            RevokeRequest { recipient: recipient_unauth.clone(), index: 0 },
         ],
     );
 
     // sender is not the vesting owner for recipient_unauth (attacker is)
-    let results = client.batch_revoke(&sender, &revoke_recipients, &token.address, &unlock_time);
+    let results = client.batch_revoke(&sender, &revoke_requests, &token.address);
 
     assert_eq!(results.len(), 4);
     assert_eq!(results.get(0).unwrap(), false, "recipient_valid: timestamp == unlock_time so already vested");
@@ -1081,16 +1073,16 @@ fn test_batch_revoke_mixed_valid_and_invalid() {
         li.timestamp = 500; // still locked
     });
 
-    let revoke_recipients = Vec::from_array(
+    let revoke_requests = Vec::from_array(
         &env,
         [
-            recipient_valid1.clone(),
-            recipient_novesting.clone(),
-            recipient_valid2.clone(),
+            RevokeRequest { recipient: recipient_valid1.clone(), index: 0 },
+            RevokeRequest { recipient: recipient_novesting.clone(), index: 0 },
+            RevokeRequest { recipient: recipient_valid2.clone(), index: 0 },
         ],
     );
 
-    let results = client.batch_revoke(&sender, &revoke_recipients, &token.address, &unlock_time);
+    let results = client.batch_revoke(&sender, &revoke_requests, &token.address);
 
     assert_eq!(results.len(), 3);
     assert_eq!(results.get(0).unwrap(), true,  "recipient_valid1 should succeed");
@@ -1099,5 +1091,303 @@ fn test_batch_revoke_mixed_valid_and_invalid() {
 
     // valid1 (150) and valid2 (250) returned to sender
     assert_eq!(token.balance(&sender), 1000);
+    assert_eq!(token.balance(&contract_id), 0);
+}
+
+// ─── Issue #195: Admin re-claim after renouncement ───────────────────────────
+
+/// After renounce_admin, set_admin must be permanently blocked so no one can
+/// take over admin rights on a contract that intentionally renounced them.
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #6)")]
+fn test_set_admin_after_renounce_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+
+    // Legitimate first-time admin initialisation
+    client.set_admin(&admin);
+
+    // Admin renounces ownership
+    client.renounce_admin(&admin);
+
+    // Attacker (or anyone else) must NOT be able to claim admin — must panic
+    // with AdminAlreadySet (#6).
+    client.set_admin(&attacker);
+}
+
+/// Calling set_admin a second time while an admin is still active must also
+/// fail (existing behaviour preserved).
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #6)")]
+fn test_set_admin_twice_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+
+    client.set_admin(&admin1);
+    // Second call must fail with AdminAlreadySet (#6)
+    client.set_admin(&admin2);
+}
+
+// ─── Issue #194: Token association ───────────────────────────────────────────
+
+/// Claiming with a different token than what was deposited must fail.
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #10)")]
+fn test_claim_wrong_token_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let token_admin = Address::generate(&env);
+    let (token_a, token_admin_client_a) = create_token_contract(&env, &token_admin);
+    // A second, unrelated token
+    let token_admin2 = Address::generate(&env);
+    let (token_b, _) = create_token_contract(&env, &token_admin2);
+
+    token_admin_client_a.mint(&sender, &1000);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 0;
+    });
+
+    client.deposit(
+        &sender,
+        &token_a.address,
+        &Vec::from_array(&env, [recipient.clone()]),
+        &Vec::from_array(&env, [100i128]),
+        &1000u64,
+    );
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1001;
+    });
+
+    // Attempt to claim using token_b — must not transfer token_b and must panic.
+    // (StillLocked because no schedule for token_b is unlocked)
+    client.claim(&recipient, &token_b.address);
+}
+
+/// Revoking with a different token than what was deposited must fail with TokenMismatch.
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #11)")]
+fn test_revoke_wrong_token_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let token_admin = Address::generate(&env);
+    let (token_a, token_admin_client_a) = create_token_contract(&env, &token_admin);
+    let token_admin2 = Address::generate(&env);
+    let (token_b, _) = create_token_contract(&env, &token_admin2);
+
+    token_admin_client_a.mint(&sender, &1000);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 0;
+    });
+
+    client.deposit(
+        &sender,
+        &token_a.address,
+        &Vec::from_array(&env, [recipient.clone()]),
+        &Vec::from_array(&env, [100i128]),
+        &1000u64,
+    );
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 500;
+    });
+
+    // Revoke supplying token_b instead of token_a — must error with TokenMismatch (#11).
+    client.revoke(&sender, &recipient, &token_b.address, &0);
+}
+
+/// batch_revoke with a wrong token returns false for affected entries (no cross-token drain).
+#[test]
+fn test_batch_revoke_wrong_token_skipped() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let token_admin = Address::generate(&env);
+    let (token_a, token_admin_client_a) = create_token_contract(&env, &token_admin);
+    let token_admin2 = Address::generate(&env);
+    let (token_b, _) = create_token_contract(&env, &token_admin2);
+
+    token_admin_client_a.mint(&sender, &1000);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 0;
+    });
+
+    client.deposit(
+        &sender,
+        &token_a.address,
+        &Vec::from_array(&env, [recipient.clone()]),
+        &Vec::from_array(&env, [100i128]),
+        &1000u64,
+    );
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 500;
+    });
+
+    let revoke_requests = Vec::from_array(&env, [
+        RevokeRequest { recipient: recipient.clone(), index: 0 },
+    ]);
+
+    // Call batch_revoke with token_b — must return false, contract balance unchanged.
+    let results = client.batch_revoke(&sender, &revoke_requests, &token_b.address);
+    assert_eq!(results.get(0).unwrap(), false, "Token mismatch must return false");
+    assert_eq!(token_a.balance(&contract_id), 100, "Contract must retain token_a");
+}
+
+// ─── Issue #196: Per-recipient schedule cap ──────────────────────────────────
+
+/// deposit must reject when a recipient already holds MAX_SCHEDULES_PER_RECIPIENT schedules.
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #12)")]
+fn test_deposit_schedule_limit_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let token_admin = Address::generate(&env);
+    let (token, token_admin_client) = create_token_contract(&env, &token_admin);
+    token_admin_client.mint(&sender, &10000);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 0;
+    });
+
+    // Fill up to the limit: each deposit adds one schedule for the same recipient.
+    for i in 0..MAX_SCHEDULES_PER_RECIPIENT {
+        let unlock = 1000 + u64::from(i) * 100;
+        client.deposit(
+            &sender,
+            &token.address,
+            &Vec::from_array(&env, [recipient.clone()]),
+            &Vec::from_array(&env, [10i128]),
+            &unlock,
+        );
+    }
+
+    // One more deposit for the same recipient must panic with ScheduleLimitExceeded (#12).
+    client.deposit(
+        &sender,
+        &token.address,
+        &Vec::from_array(&env, [recipient.clone()]),
+        &Vec::from_array(&env, [10i128]),
+        &(2000 + u64::from(MAX_SCHEDULES_PER_RECIPIENT) * 100),
+    );
+}
+
+// ─── Issue #198: batch_revoke processes all matching schedules per recipient ──
+
+/// When a recipient has multiple schedules and all are included in a single
+/// batch_revoke call, every schedule must be revoked (not just the first).
+/// This also validates that descending-index processing prevents swap-remove
+/// index corruption.
+#[test]
+fn test_batch_revoke_multiple_schedules_same_recipient() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let token_admin = Address::generate(&env);
+    let (token, token_admin_client) = create_token_contract(&env, &token_admin);
+    token_admin_client.mint(&sender, &10000);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 0;
+    });
+
+    // Create 3 separate vesting schedules for the same recipient
+    // (different unlock times so each deposit call is valid)
+    client.deposit(
+        &sender,
+        &token.address,
+        &Vec::from_array(&env, [recipient.clone()]),
+        &Vec::from_array(&env, [100i128]),
+        &1000u64,
+    );
+    client.deposit(
+        &sender,
+        &token.address,
+        &Vec::from_array(&env, [recipient.clone()]),
+        &Vec::from_array(&env, [200i128]),
+        &2000u64,
+    );
+    client.deposit(
+        &sender,
+        &token.address,
+        &Vec::from_array(&env, [recipient.clone()]),
+        &Vec::from_array(&env, [300i128]),
+        &3000u64,
+    );
+
+    // Recipient has 3 schedules (indices 0, 1, 2); contract holds 600 tokens.
+    assert_eq!(token.balance(&contract_id), 600);
+
+    env.ledger().with_mut(|li| {
+        li.timestamp = 500; // all three are still locked
+    });
+
+    // Revoke all three in one batch call — higher indices must be processed first
+    // internally to avoid swap-remove corruption.
+    let revoke_requests = Vec::from_array(
+        &env,
+        [
+            RevokeRequest { recipient: recipient.clone(), index: 0 },
+            RevokeRequest { recipient: recipient.clone(), index: 1 },
+            RevokeRequest { recipient: recipient.clone(), index: 2 },
+        ],
+    );
+    let results = client.batch_revoke(&sender, &revoke_requests, &token.address);
+
+    // All three must succeed
+    assert_eq!(results.get(0).unwrap(), true, "schedule at index 0 must be revoked");
+    assert_eq!(results.get(1).unwrap(), true, "schedule at index 1 must be revoked");
+    assert_eq!(results.get(2).unwrap(), true, "schedule at index 2 must be revoked");
+
+    // All 600 tokens returned to sender; contract is empty.
+    assert_eq!(token.balance(&sender), 10000);
     assert_eq!(token.balance(&contract_id), 0);
 }

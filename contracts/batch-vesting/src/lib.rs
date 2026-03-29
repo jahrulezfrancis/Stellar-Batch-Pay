@@ -3,6 +3,9 @@
 use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, String, Symbol, Vec};
 
 const MAX_BATCH_SIZE: u32 = 100;
+/// #196: Cap the number of vesting schedules per recipient to prevent unbounded
+/// iteration in claim() and revoke(), which would cause gas exhaustion (DoS).
+const MAX_SCHEDULES_PER_RECIPIENT: u32 = 10;
 const DAY_IN_LEDGERS: u32 = 17280;
 const BUMP_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
 const BUMP_EXTEND_TO: u32 = 30 * DAY_IN_LEDGERS;
@@ -16,6 +19,9 @@ pub struct VestingData {
     pub amount: i128,
     pub unlock_time: u64,
     pub sender: Address,
+    /// #194: Store the token address so claim/revoke can validate it matches
+    /// the token that was originally deposited, preventing cross-token exploits.
+    pub token: Address,
 }
 
 #[contracttype]
@@ -32,6 +38,9 @@ pub enum DataKey {
     Admin,
     PendingAdmin,
     Paused,
+    /// #195: Permanent flag written on first set_admin and never cleared,
+    /// even after renounce_admin.  Prevents admin re-claim post-renouncement.
+    AdminInitialized,
 }
 
 #[soroban_sdk::contracterror]
@@ -48,6 +57,10 @@ pub enum VestingError {
     AlreadyVested = 8,
     Unauthorized = 9,
     StillLocked = 10,
+    /// #194: Provided token does not match the token stored in the vesting schedule.
+    TokenMismatch = 11,
+    /// #196: Recipient has reached the maximum number of allowed vesting schedules.
+    ScheduleLimitExceeded = 12,
 }
 
 impl BatchVestingContract {
@@ -67,6 +80,21 @@ impl BatchVestingContract {
 
     fn remove_admin_internal(env: &Env) {
         env.storage().persistent().remove(&DataKey::Admin);
+    }
+
+    /// Returns true if set_admin was ever successfully called on this contract.
+    fn is_admin_initialized(env: &Env) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::AdminInitialized)
+            .unwrap_or(false)
+    }
+
+    /// Permanently records that admin has been initialised.  Never cleared.
+    fn mark_admin_initialized(env: &Env) {
+        env.storage()
+            .persistent()
+            .set(&DataKey::AdminInitialized, &true);
     }
 
     fn get_pending_admin(env: &Env) -> Option<Address> {
@@ -168,13 +196,20 @@ impl BatchVestingContract {
     }
 
     fn extend_ttl_admin(env: &Env) {
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Admin, BUMP_THRESHOLD, BUMP_EXTEND_TO);
+        if env.storage().persistent().has(&DataKey::Admin) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&DataKey::Admin, BUMP_THRESHOLD, BUMP_EXTEND_TO);
+        }
         if env.storage().persistent().has(&DataKey::PendingAdmin) {
             env.storage()
                 .persistent()
                 .extend_ttl(&DataKey::PendingAdmin, BUMP_THRESHOLD, BUMP_EXTEND_TO);
+        }
+        if env.storage().persistent().has(&DataKey::AdminInitialized) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&DataKey::AdminInitialized, BUMP_THRESHOLD, BUMP_EXTEND_TO);
         }
     }
 
@@ -222,12 +257,20 @@ impl BatchVestingContract {
             soroban_sdk::panic_with_error!(&env, VestingError::InvalidUnlockTime);
         }
 
+        let mut total_amount: i128 = 0;
+
         for i in 0..recipients.len() {
             let recipient = recipients.get(i).unwrap();
             let amount = amounts.get(i).unwrap();
 
             if amount <= 0 {
                 soroban_sdk::panic_with_error!(&env, VestingError::InvalidAmount);
+            }
+
+            // #196: reject deposit if recipient is already at the schedule cap.
+            let current_count = Self::get_count(&env, &recipient);
+            if current_count >= MAX_SCHEDULES_PER_RECIPIENT {
+                soroban_sdk::panic_with_error!(&env, VestingError::ScheduleLimitExceeded);
             }
 
             total_amount = total_amount.checked_add(amount).unwrap();
@@ -239,6 +282,7 @@ impl BatchVestingContract {
                     amount,
                     unlock_time,
                     sender: sender.clone(),
+                    token: token.clone(), // #194: bind token to this schedule
                 },
             );
             Self::extend_ttl_vesting(&env, &recipient, idx);
@@ -253,13 +297,18 @@ impl BatchVestingContract {
         token_client.transfer(&sender, &env.current_contract_address(), &total_amount);
     }
 
-    /// Set admin for the contract. Only the first call can set the admin.
+    /// Set admin for the contract. Only the very first call can set the admin.
+    ///
+    /// #195: Checks the permanent `AdminInitialized` flag rather than whether
+    /// an admin is currently stored.  This prevents re-claiming admin rights
+    /// after `renounce_admin` has been called.
     pub fn set_admin(env: Env, admin: Address) {
         admin.require_auth();
-        if Self::get_admin(&env).is_some() {
+        if Self::is_admin_initialized(&env) {
             soroban_sdk::panic_with_error!(&env, VestingError::AdminAlreadySet);
         }
         Self::set_admin_internal(&env, &admin);
+        Self::mark_admin_initialized(&env);
         Self::extend_ttl_admin(&env);
     }
 
@@ -329,7 +378,7 @@ impl BatchVestingContract {
             .publish((Symbol::new(&env, "PauseToggled"),), (admin, paused));
     }
 
-    /// Revoke unvested schedule by recipient/unlock time.
+    /// Revoke an unvested schedule by index.
     pub fn revoke(env: Env, caller: Address, recipient: Address, token: Address, index: u32) {
         Self::panic_if_paused(&env);
         caller.require_auth();
@@ -351,6 +400,11 @@ impl BatchVestingContract {
             soroban_sdk::panic_with_error!(&env, VestingError::Unauthorized);
         }
 
+        // #194: reject if the caller provides a different token than what was deposited.
+        if vesting.token != token {
+            soroban_sdk::panic_with_error!(&env, VestingError::TokenMismatch);
+        }
+
         let revoked_amount = vesting.amount;
         let sender = vesting.sender.clone();
 
@@ -365,8 +419,11 @@ impl BatchVestingContract {
         );
     }
 
-    /// Revoke unvested schedules for multiple recipients.
-    /// Takes a vector of (recipient, index) pairs.
+    /// Revoke unvested schedules for multiple (recipient, index) pairs.
+    ///
+    /// Requests are processed in descending index order so that swap-with-last
+    /// removal does not corrupt the indices of pending requests that target the
+    /// same recipient (#198).
     pub fn batch_revoke(
         env: Env,
         caller: Address,
@@ -377,28 +434,64 @@ impl BatchVestingContract {
         caller.require_auth();
         Self::panic_if_batch_too_large(requests.len());
 
-        let current_time = env.ledger().timestamp();
-        let mut results = Vec::new(&env);
+        let n = requests.len();
+        if n == 0 {
+            return Vec::new(&env);
+        }
 
-        for i in 0..requests.len() {
-            let request = requests.get(i).unwrap();
+        let current_time = env.ledger().timestamp();
+
+        // #198: Build a processing order sorted by request.index descending via
+        // bubble sort (bounded by MAX_BATCH_SIZE = 100, so O(n²) is acceptable).
+        // Processing higher indices first guarantees that the swap-with-last
+        // removal of entry i never invalidates a later removal of entry j < i
+        // for the same recipient.
+        let mut process_order: Vec<u32> = Vec::new(&env);
+        for k in 0..n {
+            process_order.push_back(k);
+        }
+        for _pass in 0..n {
+            for j in 0..(n - 1) {
+                let a = process_order.get(j).unwrap();
+                let b = process_order.get(j + 1).unwrap();
+                let idx_a = requests.get(a).unwrap().index;
+                let idx_b = requests.get(b).unwrap().index;
+                if idx_a < idx_b {
+                    process_order.set(j, b);
+                    process_order.set(j + 1, a);
+                }
+            }
+        }
+
+        // Pre-allocate results in original request order (default false).
+        let mut results: Vec<bool> = Vec::new(&env);
+        for _ in 0..n {
+            results.push_back(false);
+        }
+
+        for k in 0..n {
+            let pos = process_order.get(k).unwrap();
+            let request = requests.get(pos).unwrap();
             let recipient = &request.recipient;
             let index = request.index;
 
             let count = Self::get_count(&env, recipient);
             if index >= count {
-                results.push_back(false);
                 continue;
             }
 
             let vesting = Self::get_vesting(&env, recipient, index);
+
             if current_time >= vesting.unlock_time {
-                results.push_back(false);
                 continue;
             }
 
             if !Self::is_authorized(&env, &caller, &vesting.sender) {
-                results.push_back(false);
+                continue;
+            }
+
+            // #194: skip (return false) if token doesn't match the stored schedule token.
+            if vesting.token != token {
                 continue;
             }
 
@@ -415,7 +508,7 @@ impl BatchVestingContract {
                 (Symbol::new(&env, "VestingRevoked"), recipient.clone(), sender),
                 (revoked_amount, unlock_time),
             );
-            results.push_back(true);
+            results.set(pos, true);
         }
         results
     }
@@ -425,7 +518,10 @@ impl BatchVestingContract {
         String::from_str(&env, "1.0.0")
     }
 
-    /// Claim the vested funds.
+    /// Claim all vested (unlocked) funds for the given token.
+    ///
+    /// Only schedules whose stored token matches the provided token are
+    /// considered (#194).  Schedules for other tokens are left untouched.
     pub fn claim(env: Env, recipient: Address, token: Address) {
         Self::panic_if_paused(&env);
         recipient.require_auth();
@@ -438,10 +534,15 @@ impl BatchVestingContract {
         let current_time = env.ledger().timestamp();
         let mut amount_to_transfer: i128 = 0;
 
-        // Collect claimable indices first (iterate in reverse to safely remove via swap)
+        // Collect claimable indices: unlocked AND matching the provided token.
         let mut claimable: Vec<u32> = Vec::new(&env);
         for i in 0..count {
             let vesting = Self::get_vesting(&env, &recipient, i);
+            // #194: only process schedules for the requested token.
+            if vesting.token != token {
+                Self::extend_ttl_vesting(&env, &recipient, i);
+                continue;
+            }
             if current_time >= vesting.unlock_time {
                 amount_to_transfer = amount_to_transfer.checked_add(vesting.amount).unwrap();
                 claimable.push_back(i);
