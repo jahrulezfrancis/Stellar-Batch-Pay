@@ -357,10 +357,18 @@ fn test_events_emission() {
     let mut deposit_found = 0;
 
     for (contract, topics, data) in deposit_events.iter() {
-        if contract == contract_id && topics.len() == 1 {
+        if contract == contract_id && topics.len() == 3 {
             let topic: Symbol = topics.get(0).unwrap().into_val(&env);
             if topic == deposit_symbol {
-                let (evt_sender, evt_recipient, evt_amount, evt_unlock): (Address, Address, i128, u64) = data.into_val(&env);
+                let evt_sender: Address = topics.get(1).unwrap().into_val(&env);
+                let evt_recipient: Address = topics.get(2).unwrap().into_val(&env);
+                let (evt_amount, evt_unlock): (i128, u64) = data.into_val(&env);
+                let (evt_sender, evt_recipient, evt_amount, evt_unlock): (
+                    Address,
+                    Address,
+                    i128,
+                    u64,
+                ) = data.into_val(&env);
                 assert_eq!(evt_sender, sender);
                 assert_eq!(evt_unlock, unlock_time);
                 if evt_recipient == recipient1 {
@@ -373,7 +381,10 @@ fn test_events_emission() {
             }
         }
     }
-    assert_eq!(deposit_found, 2, "Should find 2 deposit events with correct data");
+    assert_eq!(
+        deposit_found, 2,
+        "Should find 2 deposit events with correct data"
+    );
 
     // Advance time and claim 1
     env.ledger().with_mut(|li| {
@@ -386,10 +397,11 @@ fn test_events_emission() {
     let mut claim1_found = false;
 
     for (contract, topics, data) in claim1_events.iter() {
-        if contract == contract_id && topics.len() == 1 {
+        if contract == contract_id && topics.len() == 2 {
             let topic: Symbol = topics.get(0).unwrap().into_val(&env);
             if topic == claim_symbol {
-                let (evt_recipient, evt_amount): (Address, i128) = data.into_val(&env);
+                let evt_recipient: Address = topics.get(1).unwrap().into_val(&env);
+                let evt_amount: i128 = data.into_val(&env);
                 assert_eq!(evt_recipient, recipient1);
                 assert_eq!(evt_amount, 100);
                 claim1_found = true;
@@ -404,10 +416,11 @@ fn test_events_emission() {
     let mut claim2_found = false;
 
     for (contract, topics, data) in claim2_events.iter() {
-        if contract == contract_id && topics.len() == 1 {
+        if contract == contract_id && topics.len() == 2 {
             let topic: Symbol = topics.get(0).unwrap().into_val(&env);
             if topic == claim_symbol {
-                let (evt_recipient, evt_amount): (Address, i128) = data.into_val(&env);
+                let evt_recipient: Address = topics.get(1).unwrap().into_val(&env);
+                let evt_amount: i128 = data.into_val(&env);
                 assert_eq!(evt_recipient, recipient2);
                 assert_eq!(evt_amount, 200);
                 claim2_found = true;
@@ -498,7 +511,10 @@ fn test_batch_revoke_by_sender() {
     let (token, token_admin_client) = create_token_contract(&env, &token_admin);
     token_admin_client.mint(&sender, &1000);
 
-    let recipients = Vec::from_array(&env, [recipient1.clone(), recipient2.clone(), recipient3.clone()]);
+    let recipients = Vec::from_array(
+        &env,
+        [recipient1.clone(), recipient2.clone(), recipient3.clone()],
+    );
     let amounts = Vec::from_array(&env, [100, 200, 300]);
     let unlock_time = 1000;
 
@@ -577,7 +593,7 @@ fn test_batch_revoke_multiple_senders() {
 
     let token_admin = Address::generate(&env);
     let (token, token_admin_client) = create_token_contract(&env, &token_admin);
-    
+
     token_admin_client.mint(&sender1, &1000);
     token_admin_client.mint(&sender2, &1000);
 
@@ -754,10 +770,18 @@ fn test_batch_revoke_events_emission() {
     let mut revoke_found = 0;
 
     for (contract, topics, data) in revoke_events.iter() {
-        if contract == contract_id && topics.len() == 1 {
+        if contract == contract_id && topics.len() == 3 {
             let topic: Symbol = topics.get(0).unwrap().into_val(&env);
             if topic == revoke_symbol {
-                let (evt_recipient, evt_sender, evt_amount, evt_unlock): (Address, Address, i128, u64) = data.into_val(&env);
+                let evt_recipient: Address = topics.get(1).unwrap().into_val(&env);
+                let evt_sender: Address = topics.get(2).unwrap().into_val(&env);
+                let (evt_amount, evt_unlock): (i128, u64) = data.into_val(&env);
+                let (evt_recipient, evt_sender, evt_amount, evt_unlock): (
+                    Address,
+                    Address,
+                    i128,
+                    u64,
+                ) = data.into_val(&env);
                 assert_eq!(evt_sender, sender);
                 assert_eq!(evt_unlock, unlock_time);
                 if evt_recipient == recipient1 {
@@ -770,7 +794,10 @@ fn test_batch_revoke_events_emission() {
             }
         }
     }
-    assert_eq!(revoke_found, 2, "Should find 2 revoke events with correct data");
+    assert_eq!(
+        revoke_found, 2,
+        "Should find 2 revoke events with correct data"
+    );
 }
 
 #[test]
@@ -790,7 +817,10 @@ fn test_batch_revoke_partial_recipients() {
     let (token, token_admin_client) = create_token_contract(&env, &token_admin);
     token_admin_client.mint(&sender, &1000);
 
-    let recipients = Vec::from_array(&env, [recipient1.clone(), recipient2.clone(), recipient3.clone()]);
+    let recipients = Vec::from_array(
+        &env,
+        [recipient1.clone(), recipient2.clone(), recipient3.clone()],
+    );
     let amounts = Vec::from_array(&env, [100, 200, 300]);
     let unlock_time = 1000;
 
