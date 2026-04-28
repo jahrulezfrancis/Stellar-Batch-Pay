@@ -3,6 +3,8 @@
  *
  * Called fire-and-forget from the batch-submit route. Updates job state
  * in the job store so the polling endpoint can track progress.
+ *
+ * Also persists batch state to IndexedDB to enable recovery of partial failures.
  */
 
 import { StellarService } from "./server";
@@ -10,6 +12,7 @@ import { updateJob } from "../job-store";
 import { createBatches } from "./batcher";
 import type { PaymentInstruction, BatchResult, PaymentResult } from "./types";
 import { Horizon } from "stellar-sdk";
+import { saveBatchForRecovery } from "../batch-recovery";
 
 /**
  * Process a batch job in the background. This function must NOT be awaited
@@ -89,6 +92,14 @@ export async function processJobInBackground(
         failed: failCount,
       },
     };
+
+    // Save batch state to IndexedDB for recovery of partial failures
+    try {
+      await saveBatchForRecovery(jobId, network, payments, allResults);
+    } catch (persistError) {
+      console.warn('Failed to save batch state for recovery:', persistError);
+      // Don't block job completion on persistence failure
+    }
 
     updateJob(jobId, {
       status: "completed",
