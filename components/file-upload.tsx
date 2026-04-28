@@ -3,15 +3,65 @@
 import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/use-toast';
+import Papa from 'papaparse';
+import { validateCSVData, type CSVValidationError } from '@/lib/stellar/csv-validation-schema';
 
 interface FileUploadProps {
   onFileSelect: (file: File, format: 'json' | 'csv') => void;
   disabled?: boolean;
 }
 
+interface ValidationState {
+  errors: CSVValidationError[];
+  validRowCount: number;
+  totalRows: number;
+}
+
 export function FileUpload({ onFileSelect, disabled }: FileUploadProps) {
   const [fileName, setFileName] = useState('');
+  const [validation, setValidation] = useState<ValidationState | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const validateCSV = async (file: File) => {
+    try {
+      const content = await file.text();
+      const parsed = Papa.parse<Record<string, string>>(content, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header: string) => header.trim().toLowerCase(),
+      });
+
+      const result = validateCSVData(parsed.data, 2);
+      setValidation({
+        errors: result.errors,
+        validRowCount: result.validRowCount,
+        totalRows: result.totalRows,
+      });
+
+      if (!result.valid) {
+        toast({
+          title: "CSV validation errors",
+          description: `Found ${result.errors.length} error(s) in ${result.totalRows} row(s)`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "CSV valid",
+          description: `All ${result.totalRows} rows are valid`,
+          variant: "default",
+        });
+      }
+
+      return result.valid;
+    } catch (error) {
+      toast({
+        title: "CSV parsing error",
+        description: error instanceof Error ? error.message : "Failed to parse CSV",
+        variant: "destructive",
+      });
+      return false;
+    }
+  };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -28,7 +78,17 @@ export function FileUpload({ onFileSelect, disabled }: FileUploadProps) {
     }
 
     setFileName(file.name);
-    onFileSelect(file, ext as 'json' | 'csv');
+    setValidation(null);
+
+    if (ext === 'csv') {
+      validateCSV(file).then((isValid) => {
+        if (isValid) {
+          onFileSelect(file, ext);
+        }
+      });
+    } else {
+      onFileSelect(file, ext as 'json' | 'csv');
+    }
   };
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
@@ -49,7 +109,17 @@ export function FileUpload({ onFileSelect, disabled }: FileUploadProps) {
     }
 
     setFileName(file.name);
-    onFileSelect(file, ext as 'json' | 'csv');
+    setValidation(null);
+
+    if (ext === 'csv') {
+      validateCSV(file).then((isValid) => {
+        if (isValid) {
+          onFileSelect(file, ext);
+        }
+      });
+    } else {
+      onFileSelect(file, ext as 'json' | 'csv');
+    }
   };
 
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
@@ -106,6 +176,37 @@ export function FileUpload({ onFileSelect, disabled }: FileUploadProps) {
         </p>
         <p className="text-xs text-slate-500 mt-2">Supported: JSON or CSV</p>
       </div>
+      {validation && validation.errors.length > 0 && (
+        <div className="mt-4 bg-red-900/30 border border-red-700/50 rounded-lg p-4">
+          <h3 className="font-semibold text-red-400 mb-3">
+            Validation Errors: {validation.errors.length} row(s) have issues
+          </h3>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {validation.errors.slice(0, 10).map((error, idx) => (
+              <div key={idx} className="bg-red-950/50 p-2 rounded text-sm">
+                <span className="font-mono text-red-300">Row {error.row}:</span>
+                <span className="text-red-200 ml-2">
+                  <strong>{error.field}</strong> - {error.message}
+                </span>
+              </div>
+            ))}
+            {validation.errors.length > 10 && (
+              <div className="text-sm text-red-300">
+                ... and {validation.errors.length - 10} more errors
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {validation && validation.errors.length === 0 && fileName.endsWith('.csv') && (
+        <div className="mt-4 bg-green-900/30 border border-green-700/50 rounded-lg p-4">
+          <p className="text-green-300 text-sm">
+            ✓ All {validation.totalRows} rows are valid. Ready to submit!
+          </p>
+        </div>
+      )}
+
       <div className="mt-4">
         <details className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 text-sm">
           <summary className="cursor-pointer font-semibold text-slate-300">
