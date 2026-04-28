@@ -122,9 +122,40 @@ async function main() {
 }
 
 async function fetchActiveRecipients(): Promise<string[]> {
-  // TODO: Replace with real event scanning or database query
-  // For now, return an empty list or a test address
-  return [];
+  const indexerUrl = process.env.INDEXER_URL || 'https://api.stellar.expert/public';
+  const contractId = CONTRACT_ID!;
+
+  try {
+    // Fetch accounts that have interacted with the contract from Stellar Expert API
+    // This is a reliable indexer that tracks all contract interactions
+    const response = await fetch(
+      `${indexerUrl}/contract/${contractId}/interactions?limit=100&cursor=0`
+    );
+
+    if (!response.ok) {
+      console.warn(`Failed to fetch from indexer: ${response.statusText}`);
+      return [];
+    }
+
+    const data = await response.json() as { records?: { account?: string }[] };
+    const records = data.records ?? [];
+
+    // Extract unique account addresses from contract interactions
+    const accounts = new Set<string>();
+    for (const record of records) {
+      if (record.account) {
+        accounts.add(record.account);
+      }
+    }
+
+    const uniqueAccounts = Array.from(accounts);
+    console.log(`Fetched ${uniqueAccounts.length} active recipients from indexer`);
+    return uniqueAccounts;
+  } catch (error) {
+    console.error('Error fetching active recipients:', error);
+    // Return empty list on indexer failure rather than crash
+    return [];
+  }
 }
 
 async function maintainInstance(
