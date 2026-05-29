@@ -40,15 +40,15 @@ export function parseJSON(content: string): PaymentInstruction[] {
 
     return rawInstructions.map((item: Record<string, unknown>) => {
       const instruction: PaymentInstruction = {
-        address: String(item.address ?? ''),
-        amount: String(item.amount ?? ''),
-        asset: String(item.asset ?? ''),
+        address: sanitizeValue(String(item.address ?? '')),
+        amount: sanitizeValue(String(item.amount ?? '')),
+        asset: sanitizeValue(String(item.asset ?? '')),
       };
 
       if (item.memo != null && String(item.memo).trim() !== '') {
-        instruction.memo = String(item.memo).trim();
+        instruction.memo = sanitizeValue(String(item.memo).trim());
         if (item.memoType != null) {
-          const mt = String(item.memoType).toLowerCase();
+          const mt = sanitizeValue(String(item.memoType)).toLowerCase();
           if (mt === 'text' || mt === 'id' || mt === 'none') {
             instruction.memoType = mt as MemoType;
           }

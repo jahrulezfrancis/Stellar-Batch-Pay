@@ -126,8 +126,10 @@ export default function Home() {
       let failCount = 0;
       const startTime = new Date().toISOString();
 
-      // Calculate payments per batch for result attribution
-      const paymentsPerBatch = Math.min(MAX_OPS, payments.length);
+      // Calculate payments per batch for result attribution.
+      // Math.ceil(total / xdrCount) distributes payments evenly across XDRs,
+      // so e.g. 250 payments across 3 XDRs → 84 / 84 / 82 instead of 250 / 0 / 0.
+      const paymentsPerBatch = xdrs.length > 0 ? Math.ceil(payments.length / xdrs.length) : payments.length;
 
       for (let i = 0; i < xdrs.length; i++) {
         const xdr = xdrs[i];

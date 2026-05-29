@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
       .call();
 
     let totalPayments = 0;
-    let totalAmountSent = 0; // in stroops for XLM
+    let totalAmountSent = 0; // in XLM display units (Horizon returns decimal strings)
     let assetCounts: { [key: string]: number } = {};
     let successfulPayments = 0;
 
@@ -82,8 +82,8 @@ export async function GET(request: NextRequest) {
 
         // Handle amount based on asset type
         if (op.asset_type === "native") {
-          // XLM amount in stroops
-          totalAmountSent += parseFloat(op.amount) * 10000000; // Convert to stroops
+          // Horizon returns amount as a human-readable decimal (e.g. "10.5000000") — no conversion needed
+          totalAmountSent += parseFloat(op.amount);
           assetCounts["XLM"] = (assetCounts["XLM"] || 0) + parseFloat(op.amount);
         } else {
           // Issued asset

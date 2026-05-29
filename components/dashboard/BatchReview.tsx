@@ -102,7 +102,7 @@ export function BatchReview({
     if (!publicKey) {
       return;
     }
-    const filteredPayments = payments.filter((_, idx) => !skippedIndices.includes(idx));
+    const filteredPayments = payments.filter((_, idx) => !skippedIndices.includes(idx) && !convertedIndices.includes(idx));
     setIsSubmitting(true);
     try {
       await onSubmit(filteredPayments);
