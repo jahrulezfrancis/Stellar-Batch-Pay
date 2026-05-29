@@ -10,7 +10,8 @@ import {
   Settings,
   FileText,
   MoreVertical,
-  BookOpen
+  BookOpen,
+  Clock
 } from "lucide-react"
 
 import {
@@ -47,6 +48,11 @@ const navItems = [
   // had no corresponding `app/dashboard/analytics/page.tsx` and 404'd
   // — and the PaymentVolumeChart was rendering hard-coded data. Add
   // back once the metrics endpoint is wired (Option A in the issue).
+  {
+    title: "Batch Vesting",
+    url: "/dashboard/vesting",
+    icon: Clock,
+  },
   {
     title: "Address Book",
     url: "/dashboard/address-book",

@@ -11,8 +11,8 @@ import { VestingTTLAlert } from "@/components/dashboard/VestingTTLAlert";
 import { useState } from "react";
 
 export default function DashboardPage() {
-  const { publicKey } = useWallet();
-  const { metrics, loading } = useDashboardMetrics(publicKey, "testnet"); // Assuming testnet for now
+  const { publicKey, expectedNetwork } = useWallet();
+  const { metrics, loading } = useDashboardMetrics(publicKey, expectedNetwork);
   const [isBumping, setIsBumping] = useState(false);
 
   // Mock TTL data for demonstration
