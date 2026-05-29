@@ -13,11 +13,11 @@ interface MetricsGridProps {
 }
 
 export function MetricsGrid({ data }: MetricsGridProps) {
-  const metrics = data || {
-    totalBatches: 247,
-    totalPayments: 12458,
-    successRate: "98.7%",
-    totalVolume: "2.4M XLM",
+  const metrics = data ?? {
+    totalBatches: 0,
+    totalPayments: 0,
+    successRate: "0.0%",
+    totalVolume: "0 XLM",
   };
 
   return (

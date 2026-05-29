@@ -1,7 +1,8 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
-import { CheckCircle2, Clock, AlertTriangle } from "lucide-react"
+import { CheckCircle2, Clock, AlertTriangle, Loader2 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -15,46 +16,60 @@ export interface BatchRecord {
   timestamp: string
 }
 
-const defaultBatches: BatchRecord[] = [
-  {
-    id: "#BP-2024-001",
-    recipients: 147,
-    amount: "$12,450.00",
-    status: "Completed",
-    timestamp: "2 hours ago",
-  },
-  {
-    id: "#BP-2024-002",
-    recipients: 89,
-    amount: "$8,920.50",
-    status: "Processing",
-    timestamp: "4 hours ago",
-  },
-  {
-    id: "#BP-2024-003",
-    recipients: 203,
-    amount: "$15,780.25",
-    status: "Completed",
-    timestamp: "1 day ago",
-  },
-  {
-    id: "#BP-2024-004",
-    recipients: 156,
-    amount: "$22,340.75",
-    status: "Failed",
-    timestamp: "2 days ago",
-  },
-]
-
 interface RecentBatchesTableProps {
   batches?: BatchRecord[]
+  publicKey?: string | null
+  network?: "testnet" | "mainnet"
+  limit?: number
   className?: string
 }
 
 export function RecentBatchesTable({
-  batches = defaultBatches,
+  batches,
+  publicKey,
+  network = "testnet",
+  limit = 5,
   className,
 }: RecentBatchesTableProps) {
+  const [rows, setRows] = useState<BatchRecord[]>(batches ?? [])
+  const [loading, setLoading] = useState(!batches && Boolean(publicKey))
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (batches) {
+      setRows(batches)
+      return
+    }
+
+    if (!publicKey) {
+      setRows([])
+      setLoading(false)
+      setError(null)
+      return
+    }
+
+    const params = new URLSearchParams({
+      publicKey,
+      network,
+      limit: String(limit),
+    })
+
+    setLoading(true)
+    setError(null)
+
+    fetch(`/api/batch-history?${params.toString()}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return response.json() as Promise<{ items: BatchHistoryItem[] }>
+      })
+      .then((body) => setRows(body.items.map(toBatchRecord)))
+      .catch((err: unknown) => {
+        setRows([])
+        setError(err instanceof Error ? err.message : "Failed to load batches")
+      })
+      .finally(() => setLoading(false))
+  }, [batches, publicKey, network, limit])
+
   return (
     <Card className={cn("border-[#1F2937] bg-[#121827] shadow-lg", className)}>
       <CardContent className="p-6">
@@ -64,6 +79,25 @@ export function RecentBatchesTable({
             <Link href="/dashboard/history">View All</Link>
           </Button>
         </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-16 text-gray-400">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span>Loading recent batches...</span>
+          </div>
+        ) : error ? (
+          <div className="flex items-center justify-center py-16 text-red-400">
+            Failed to load recent batches: {error}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <p className="text-base font-semibold text-white">No batches yet</p>
+            <p className="mt-2 max-w-md text-sm text-gray-400">
+              Completed batch payments for the connected wallet will appear here.
+            </p>
+          </div>
+        ) : (
+          <>
         
         <div className="hidden md:block overflow-x-auto overflow-y-hidden">
           <table className="w-full text-left">
@@ -77,7 +111,7 @@ export function RecentBatchesTable({
               </tr>
             </thead>
             <tbody className="text-sm">
-              {batches.map((batch) => (
+              {rows.map((batch) => (
                 <tr 
                   key={batch.id} 
                   className="group border-b border-[#1F2937]/30 hover:bg-white/[0.01] transition-all duration-300"
@@ -107,7 +141,7 @@ export function RecentBatchesTable({
 
         {/* Mobile View - Premium Card List */}
         <div className="flex flex-col gap-5 md:hidden">
-          {batches.map((batch) => (
+          {rows.map((batch) => (
             <div 
               key={batch.id} 
               className="group relative overflow-hidden flex flex-col p-5 rounded-2xl border border-[#1F2937] bg-gradient-to-b from-[#1F2937]/40 to-transparent hover:border-[#00D98B]/30 transition-all duration-500"
@@ -145,9 +179,48 @@ export function RecentBatchesTable({
             </div>
           ))}
         </div>
+          </>
+        )}
       </CardContent>
     </Card>
   )
+}
+
+interface BatchHistoryItem {
+  jobId: string
+  status: "queued" | "processing" | "completed" | "failed"
+  totalPayments: number
+  totalAmount: string | null
+  createdAt: string
+}
+
+function toBatchRecord(item: BatchHistoryItem): BatchRecord {
+  return {
+    id: item.jobId,
+    recipients: item.totalPayments,
+    amount: item.totalAmount ? `${item.totalAmount} XLM` : "-",
+    status: toDisplayStatus(item.status),
+    timestamp: formatDate(item.createdAt),
+  }
+}
+
+function toDisplayStatus(status: BatchHistoryItem["status"]): BatchRecord["status"] {
+  if (status === "completed") return "Completed"
+  if (status === "failed") return "Failed"
+  return "Processing"
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(iso))
+  } catch {
+    return iso
+  }
 }
 
 function StatusBadge({ status }: { status: BatchRecord["status"] }) {

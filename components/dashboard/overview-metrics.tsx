@@ -1,6 +1,5 @@
 "use client"
 
-import Image from "next/image"
 import { MetricCard } from "./metric-card"
 
 interface MetricData {
@@ -13,76 +12,49 @@ interface MetricData {
 
 interface OverviewMetricsProps {
   metrics?: {
-    totalPayments: number;
-    totalAmountSent: string;
-    successRate: string;
-    activeBatches: number;
-  };
-  loading?: boolean;
+    totalPayments: number
+    totalAmountSent: string
+    successRate: string
+    activeBatches: number
+    totalPaymentsTrend?: string
+    totalAmountSentTrend?: string
+    successRateTrend?: string
+    activeBatchesTrend?: string
+  } | null
+  loading?: boolean
 }
 
-const defaultMetricsData: MetricData[] = [
-  {
-    title: "Total Payments",
-    value: "24,567",
-    change: "+12.5%",
-    icon: "/1.svg",
-    iconBg: "bg-teal-500/20",
-  },
-  {
-    title: "Total Amount Sent",
-    value: "$1.2M",
-    change: "+8.2%",
-    icon: "/2.svg",
-    iconBg: "bg-blue-500/20",
-  },
-  {
-    title: "Success Rate",
-    value: "98.7%",
-    change: "+2.1%",
-    icon: "/3.svg",
-    iconBg: "bg-green-500/20",
-  },
-  {
-    title: "Active Batches",
-    value: "12",
-    change: "Live",
-    icon: "/4.svg",
-    iconBg: "bg-purple-500/20",
-  },
-]
-
 export function OverviewMetrics({ metrics, loading }: OverviewMetricsProps) {
-  const metricsData = metrics ? [
+  const metricsData: MetricData[] = [
     {
       title: "Total Payments",
-      value: metrics.totalPayments.toLocaleString(),
-      change: loading ? "Loading..." : "+12.5%",
+      value: loading ? "-" : (metrics?.totalPayments ?? 0).toLocaleString(),
+      change: loading ? "Loading..." : metrics?.totalPaymentsTrend ?? "No trend",
       icon: "/1.svg",
       iconBg: "bg-teal-500/20",
     },
     {
       title: "Total Amount Sent",
-      value: `${metrics.totalAmountSent} XLM`,
-      change: loading ? "Loading..." : "+8.2%",
+      value: loading ? "-" : metrics?.totalAmountSent ?? "0 XLM",
+      change: loading ? "Loading..." : metrics?.totalAmountSentTrend ?? "No trend",
       icon: "/2.svg",
       iconBg: "bg-blue-500/20",
     },
     {
       title: "Success Rate",
-      value: metrics.successRate,
-      change: loading ? "Loading..." : "+2.1%",
+      value: loading ? "-" : metrics?.successRate ?? "0.0%",
+      change: loading ? "Loading..." : metrics?.successRateTrend ?? "No trend",
       icon: "/3.svg",
       iconBg: "bg-green-500/20",
     },
     {
       title: "Active Batches",
-      value: metrics.activeBatches.toString(),
-      change: loading ? "Loading..." : "Live",
+      value: loading ? "-" : (metrics?.activeBatches ?? 0).toString(),
+      change: loading ? "Loading..." : metrics?.activeBatchesTrend ?? "No trend",
       icon: "/4.svg",
       iconBg: "bg-purple-500/20",
     },
-  ] : defaultMetricsData;
+  ]
 
   return (
     <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">

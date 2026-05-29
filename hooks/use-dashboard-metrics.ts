@@ -12,8 +12,10 @@ export interface DashboardMetrics {
   totalAmountSent: string;
   successRate: string;
   activeBatches: number;
-  timeSeries?: DashboardMetricsTimeSeriesPoint[];
-  range?: "7d" | "30d" | "90d";
+  totalPaymentsTrend?: string;
+  totalAmountSentTrend?: string;
+  successRateTrend?: string;
+  activeBatchesTrend?: string;
 }
 
 export function useDashboardMetrics(
