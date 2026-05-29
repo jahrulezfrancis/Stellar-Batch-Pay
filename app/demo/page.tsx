@@ -20,6 +20,7 @@ import type {
 } from "@/lib/stellar/types";
 import { useBatchHistory } from "@/hooks/use-batch-history";
 import { Navbar } from "@/components/landing/navbar";
+import { BatchErrorBoundary } from "@/components/BatchErrorBoundary";
 
 type PageState = "upload" | "parsing" | "preview" | "signing" | "results";
 
@@ -265,7 +266,36 @@ export default function Home() {
     }
   };
 
+  // Save state to sessionStorage to preserve file state across errors / reloads
+  useEffect(() => {
+    if (payments.length > 0) {
+      sessionStorage.setItem("demo_batch_payments", JSON.stringify(payments));
+    }
+  }, [payments]);
+
+  // Restore on mount or boundary restore trigger
+  const handleRestore = (restoredPayments: PaymentInstruction[]) => {
+    setPayments(restoredPayments);
+    setState("preview");
+  };
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem("demo_batch_payments");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.length > 0) {
+          setPayments(parsed);
+          setState("preview");
+        }
+      } catch (e) {
+        console.error("Failed to restore saved payments from sessionStorage:", e);
+      }
+    }
+  }, []);
+
   const handleReset = () => {
+    sessionStorage.removeItem("demo_batch_payments");
     setPayments([]);
     setResult(null);
     setError("");
@@ -308,174 +338,178 @@ export default function Home() {
           </div>
         )}
 
-        {/* ── Upload ────────────────────────────────────────────────── */}
-        {state === "upload" && (
-          <div className="space-y-6">
-            <div className="bg-card border border-border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">
-                Upload Payment File
-              </h2>
-              <FileUpload onFileSelect={handleFileSelect} onValidationResult={setValidationResult} />
-            </div>
-            {validationResult && validationResult.invalidCount > 0 && (
-              <CsvValidationErrors validationResult={validationResult} />
-            )}
-          </div>
-        )}
-
-        {/* ── Parsing ───────────────────────────────────────────────── */}
-        {state === "parsing" && (
-          <div className="space-y-6">
-            <div className="bg-card border border-border rounded-lg p-6 py-12 text-center">
-              <h2 className="text-xl font-semibold mb-4 text-primary animate-pulse">Parsing File...</h2>
-              <div className="text-4xl font-mono mb-2">{parsedCount.toLocaleString()}</div>
-              <p className="text-sm text-muted-foreground">Rows processed</p>
-            </div>
-          </div>
-        )}
-
-        {/* ── Preview ───────────────────────────────────────────────── */}
-        {state === "preview" && (
-          <div className="space-y-6">
-            <div className="bg-card border border-border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">Batch Preview</h2>
-              <BatchSummary payments={payments} />
-            </div>
-
-            <div className="bg-card border border-border rounded-lg p-6">
-              <h3 className="font-semibold mb-4">Network Selection</h3>
-              <div className="flex gap-4">
-                {(["testnet", "mainnet"] as const).map((net) => (
-                  <label
-                    key={net}
-                    className="flex items-center gap-2 cursor-pointer"
-                  >
-                    <input
-                      type="radio"
-                      name="network"
-                      value={net}
-                      checked={network === net}
-                      onChange={(e) =>
-                        setNetwork(e.target.value as "testnet" | "mainnet")
-                      }
-                      className="w-4 h-4"
-                    />
-                    <span className="capitalize text-foreground">{net}</span>
-                  </label>
-                ))}
+        <BatchErrorBoundary storageKey="demo_batch_payments" onRestore={handleRestore}>
+          {/* ── Upload ────────────────────────────────────────────────── */}
+          {state === "upload" && (
+            <div className="space-y-6">
+              <div className="bg-card border border-border rounded-lg p-6">
+                <h2 className="text-xl font-semibold mb-4">
+                  Upload Payment File
+                </h2>
+                <FileUpload onFileSelect={handleFileSelect} onValidationResult={setValidationResult} />
               </div>
-              <p className="text-xs text-muted-foreground mt-3">
-                Make sure your account has sufficient balance on the selected
-                network.
-              </p>
+              {validationResult && validationResult.invalidCount > 0 && (
+                <CsvValidationErrors validationResult={validationResult} />
+              )}
             </div>
+          )}
 
-            <div className="flex gap-3">
-              <Button
-                onClick={handleExecute}
-                disabled={isLoading || !publicKey}
-                className="flex-1"
-                title={!publicKey ? "Connect your Freighter wallet first" : undefined}
-              >
-                {isLoading
-                  ? "Processing…"
-                  : !publicKey
-                    ? "Connect Wallet to Submit"
-                    : "Sign & Submit Batch"}
-              </Button>
-              <Button onClick={handleReset} variant="outline">
-                Change File
-              </Button>
+          {/* ── Parsing ───────────────────────────────────────────────── */}
+          {state === "parsing" && (
+            <div className="space-y-6">
+              <div className="bg-card border border-border rounded-lg p-6 py-12 text-center">
+                <h2 className="text-xl font-semibold mb-4 text-primary animate-pulse">Parsing File...</h2>
+                <div className="text-4xl font-mono mb-2">{parsedCount.toLocaleString()}</div>
+                <p className="text-sm text-muted-foreground">Rows processed</p>
+              </div>
             </div>
+          )}
 
-            {!publicKey && (
-              <p className="text-xs text-center text-amber-400">
-                ⚠ You must connect your Freighter wallet before submitting.
-              </p>
-            )}
-          </div>
-        )}
+          {/* ── Preview ───────────────────────────────────────────────── */}
+          {state === "preview" && (
+            <div className="space-y-6">
+              <div className="bg-card border border-border rounded-lg p-6">
+                <h2 className="text-xl font-semibold mb-4">Batch Preview</h2>
+                <BatchSummary payments={payments} />
+              </div>
 
-        {/* ── Signing / Progress ────────────────────────────────────── */}
-        {state === "signing" && (
-          <div className="space-y-6">
-            <div className="bg-card border border-border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-6">
-                {signingProgress.phase === "building"
-                  ? "Building Transactions…"
-                  : signingProgress.phase === "signing"
-                    ? "Waiting for Signature…"
-                    : "Submitting to Network…"}
-              </h2>
+              <div className="bg-card border border-border rounded-lg p-6">
+                <h3 className="font-semibold mb-4">Network Selection</h3>
+                <div className="flex gap-4">
+                  {(["testnet", "mainnet"] as const).map((net) => (
+                    <label
+                      key={net}
+                      className="flex items-center gap-2 cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name="network"
+                        value={net}
+                        checked={network === net}
+                        onChange={(e) =>
+                          setNetwork(e.target.value as "testnet" | "mainnet")
+                        }
+                        className="w-4 h-4"
+                      />
+                      <span className="capitalize text-foreground">{net}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-3">
+                  Make sure your account has sufficient balance on the selected
+                  network.
+                </p>
+              </div>
 
-              {signingProgress.total > 0 && (
-                <div className="space-y-3">
-                  <div className="flex justify-between text-sm text-muted-foreground">
-                    <span>
-                      Batch {signingProgress.current} of {signingProgress.total}
-                    </span>
-                    <span>
-                      {Math.round(
-                        (signingProgress.current / signingProgress.total) * 100,
-                      )}
-                      %
-                    </span>
+              <div className="flex gap-3">
+                <Button
+                  onClick={handleExecute}
+                  disabled={isLoading || !publicKey}
+                  className="flex-1"
+                  title={!publicKey ? "Connect your Freighter wallet first" : undefined}
+                >
+                  {isLoading
+                    ? "Processing…"
+                    : !publicKey
+                      ? "Connect Wallet to Submit"
+                      : "Sign & Submit Batch"}
+                </Button>
+                <Button onClick={handleReset} variant="outline">
+                  Change File
+                </Button>
+              </div>
+
+              {!publicKey && (
+                <p className="text-xs text-center text-amber-400">
+                  ⚠ You must connect your Freighter wallet before submitting.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* ── Signing / Progress ────────────────────────────────────── */}
+          {state === "signing" && (
+            <div className="space-y-6">
+              <div className="bg-card border border-border rounded-lg p-6">
+                <h2 className="text-xl font-semibold mb-6">
+                  {signingProgress.phase === "building"
+                    ? "Building Transactions…"
+                    : signingProgress.phase === "signing"
+                      ? "Waiting for Signature…"
+                      : "Submitting to Network…"}
+                </h2>
+
+                {signingProgress.total > 0 && (
+                  <div className="space-y-3">
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span>
+                        Batch {signingProgress.current} of {signingProgress.total}
+                      </span>
+                      <span>
+                        {Math.round(
+                          (signingProgress.current / signingProgress.total) * 100,
+                        )}
+                        %
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-500"
+                        style={{
+                          width: `${(signingProgress.current / signingProgress.total) * 100
+                            }%`,
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-500"
-                      style={{
-                        width: `${(signingProgress.current / signingProgress.total) * 100
-                          }%`,
-                      }}
-                    />
+                )}
+
+                {signingProgress.phase === "building" && (
+                  <div className="mt-6 flex items-center justify-center gap-2 text-muted-foreground">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    <span className="text-sm">Building unsigned transactions…</span>
                   </div>
-                </div>
-              )}
+                )}
 
-              {signingProgress.phase === "building" && (
-                <div className="mt-6 flex items-center justify-center gap-2 text-muted-foreground">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  <span className="text-sm">Building unsigned transactions…</span>
-                </div>
-              )}
+                {signingProgress.phase === "signing" && (
+                  <div className="mt-6 p-4 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
+                    <p className="text-sm text-indigo-300 text-center">
+                      🔐 Please approve the transaction in your Freighter wallet
+                    </p>
+                  </div>
+                )}
 
-              {signingProgress.phase === "signing" && (
-                <div className="mt-6 p-4 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
-                  <p className="text-sm text-indigo-300 text-center">
-                    🔐 Please approve the transaction in your Freighter wallet
-                  </p>
-                </div>
-              )}
+                {signingProgress.phase === "submitting" && (
+                  <div className="mt-6 flex items-center justify-center gap-2 text-muted-foreground">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    <span className="text-sm">Submitting signed transaction…</span>
+                  </div>
+                )}
+              </div>
 
-              {signingProgress.phase === "submitting" && (
-                <div className="mt-6 flex items-center justify-center gap-2 text-muted-foreground">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  <span className="text-sm">Submitting signed transaction…</span>
-                </div>
-              )}
+              <Button onClick={handleReset} variant="outline" className="w-full">
+                Cancel & Start Over
+              </Button>
             </div>
+          )}
 
-            <Button onClick={handleReset} variant="outline" className="w-full">
-              Cancel & Start Over
-            </Button>
-          </div>
-        )}
+          {/* ── Results ───────────────────────────────────────────────── */}
+          {state === "results" && result && (
+            <div className="space-y-6">
+              <div className="bg-card border border-border rounded-lg p-6">
+                <h2 className="text-xl font-semibold mb-4">Batch Results</h2>
+                <ResultsDisplay result={result} onRetry={handleRetry} />
+              </div>
 
-        {/* ── Results ───────────────────────────────────────────────── */}
-        {state === "results" && result && (
-          <div className="space-y-6">
-            <div className="bg-card border border-border rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">Batch Results</h2>
-              <ResultsDisplay result={result} onRetry={handleRetry} />
+              <Button onClick={handleReset} className="w-full">
+                Submit New Batch
+              </Button>
             </div>
-
-            <Button onClick={handleReset} className="w-full">
-              Submit New Batch
-            </Button>
-          </div>
-        )}
+          )}
+        </BatchErrorBoundary>
       </div>
     </main>
   );
+}
+
 }
