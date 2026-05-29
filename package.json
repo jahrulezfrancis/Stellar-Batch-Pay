@@ -7,6 +7,9 @@
   "author": "",
   "type": "module",
   "main": "index.js",
+  "bin": {
+    "stellar-batch-pay": "./cli/index.mjs"
+  },
   "directories": {
     "example": "examples",
     "lib": "lib",
@@ -17,6 +20,8 @@
     "dev": "next dev",
     "lint": "next lint",
     "start": "next start",
+    "cli": "node cli/index.mjs",
+    "cli:help": "node cli/index.mjs --help",
     "test": "vitest run tests/"
   },
   "dependencies": {

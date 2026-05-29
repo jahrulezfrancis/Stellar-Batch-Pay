@@ -1,29 +1,30 @@
 #!/bin/bash
+# Example CLI usage script for Stellar BatchPay.
+#
+# Validates and submits a batch from examples/payments.json on the Stellar
+# testnet. Requires STELLAR_SECRET_KEY to be exported in the environment.
 
-# Example CLI usage script for Stellar BatchPay
-# Make sure to set STELLAR_SECRET_KEY before running
+set -euo pipefail
 
-if [ -z "$STELLAR_SECRET_KEY" ]; then
-  echo "Error: STELLAR_SECRET_KEY environment variable is not set"
+if [ -z "${STELLAR_SECRET_KEY:-}" ]; then
+  echo "Error: STELLAR_SECRET_KEY environment variable is not set" >&2
   exit 1
 fi
 
 echo "=== Stellar Bulk Payment CLI Example ==="
 echo
 
-# Check if node_modules exists
 if [ ! -d "node_modules" ]; then
   echo "[*] Installing dependencies..."
   npm install
 fi
 
-echo "[*] Building TypeScript..."
-npm run build 2>/dev/null || echo "Note: build may be optional depending on your setup"
+echo "[*] Validating examples/payments.json..."
+node cli/index.mjs validate examples/payments.json
 
 echo
-echo "[*] Running CLI with example JSON file..."
-node cli/index.ts \
-  --input examples/payments.json \
+echo "[*] Submitting on testnet..."
+node cli/index.mjs submit examples/payments.json \
   --network testnet \
   --output /tmp/stellar-results.json
 
@@ -31,6 +32,6 @@ if [ -f "/tmp/stellar-results.json" ]; then
   echo
   echo "[+] Results saved to /tmp/stellar-results.json"
   echo
-  echo "[*] First result:"
+  echo "[*] First 20 lines:"
   head -20 /tmp/stellar-results.json
 fi

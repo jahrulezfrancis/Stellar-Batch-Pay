@@ -3,16 +3,35 @@
  *
  * GET /api/dashboard-metrics?publicKey=<publicKey>&network=<testnet|mainnet>
  *
+ * Optional query: range=7d|30d|90d adds a `timeSeries` field bucketing the
+ * account's payment volume into daily buckets for the requested window. The
+ * `/dashboard/analytics` page consumes this for the PaymentVolumeChart.
+ *
  * Queries Horizon for the account's operations and aggregates metrics.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { Horizon } from "stellar-sdk";
 
+type TimeRange = "7d" | "30d" | "90d";
+
+interface TimeSeriesPoint {
+  date: string; // ISO yyyy-mm-dd
+  amount: number; // XLM amount sent on that day
+}
+
+function rangeToDays(range: TimeRange | null): number | null {
+  if (range === "7d") return 7;
+  if (range === "30d") return 30;
+  if (range === "90d") return 90;
+  return null;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const publicKey = searchParams.get("publicKey");
   const network = searchParams.get("network");
+  const rangeParam = searchParams.get("range") as TimeRange | null;
 
   if (!publicKey || typeof publicKey !== "string") {
     return NextResponse.json(
@@ -24,6 +43,13 @@ export async function GET(request: NextRequest) {
   if (network !== "testnet" && network !== "mainnet") {
     return NextResponse.json(
       { error: "network must be 'testnet' or 'mainnet'" },
+      { status: 400 },
+    );
+  }
+
+  if (rangeParam && rangeToDays(rangeParam) === null) {
+    return NextResponse.json(
+      { error: "range must be one of: 7d, 30d, 90d" },
       { status: 400 },
     );
   }
@@ -103,11 +129,38 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Optional time-series for the analytics chart (#359)
+    let timeSeries: TimeSeriesPoint[] | undefined;
+    const days = rangeToDays(rangeParam);
+    if (days !== null) {
+      const cutoff = now - days * 24 * 60 * 60 * 1000;
+      const buckets = new Map<string, number>();
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(now - i * 24 * 60 * 60 * 1000);
+        const key = d.toISOString().slice(0, 10);
+        buckets.set(key, 0);
+      }
+      for (const op of operations.records) {
+        if (op.type !== "payment" || op.source_account !== publicKey) continue;
+        const ts = new Date(op.created_at).getTime();
+        if (ts < cutoff) continue;
+        const key = new Date(op.created_at).toISOString().slice(0, 10);
+        if (!buckets.has(key)) continue;
+        const amount = op.asset_type === "native" ? parseFloat(op.amount) : 0;
+        buckets.set(key, (buckets.get(key) ?? 0) + amount);
+      }
+      timeSeries = Array.from(buckets.entries()).map(([date, amount]) => ({
+        date,
+        amount: Number(amount.toFixed(7)),
+      }));
+    }
+
     return NextResponse.json({
       totalPayments,
       totalAmountSent: totalAmountDisplay,
       successRate: successRate.toFixed(1) + "%",
       activeBatches,
+      ...(timeSeries ? { timeSeries, range: rangeParam } : {}),
     });
   } catch (error) {
     console.error("Error fetching dashboard metrics:", error);

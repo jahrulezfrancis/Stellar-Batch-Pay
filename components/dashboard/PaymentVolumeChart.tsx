@@ -48,11 +48,44 @@ const data90Days = [
 
 type TimeRange = "7d" | "30d" | "90d";
 
-export function PaymentVolumeChart() {
-  const [timeRange, setTimeRange] = useState<TimeRange>("7d");
+export interface PaymentVolumePoint {
+  date: string;
+  amount: number;
+}
+
+export interface PaymentVolumeChartProps {
+  /**
+   * Optional callback fired when the user changes the range. The analytics
+   * page uses this to re-fetch the time-series from `/api/dashboard-metrics`.
+   */
+  onRangeChange?: (range: TimeRange) => void;
+  /**
+   * Initial time range to render. Defaults to `"7d"`.
+   */
+  initialRange?: TimeRange;
+  /**
+   * Live data points for the chart. When provided the chart uses these
+   * instead of the built-in sample arrays — leave undefined for the
+   * unconnected-wallet preview.
+   */
+  data?: {
+    "7d"?: PaymentVolumePoint[];
+    "30d"?: PaymentVolumePoint[];
+    "90d"?: PaymentVolumePoint[];
+  };
+}
+
+export function PaymentVolumeChart({
+  onRangeChange,
+  initialRange = "7d",
+  data,
+}: PaymentVolumeChartProps = {}) {
+  const [timeRange, setTimeRange] = useState<TimeRange>(initialRange);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   const getData = () => {
+    const live = data?.[timeRange];
+    if (live && live.length > 0) return live;
     switch (timeRange) {
       case "7d":
         return data7Days;
@@ -101,6 +134,7 @@ export function PaymentVolumeChart() {
                       className="block w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-[#1F2937]/50"
                       onClick={() => {
                         setTimeRange(range);
+                        onRangeChange?.(range);
                         setIsDropdownOpen(false);
                       }}
                     >
