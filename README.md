@@ -194,9 +194,31 @@ Implemented in `contracts/batch-vesting/src/lib.rs`:
 
 - `deposit(env, sender, token, recipients, amounts, unlock_time)`
 - `batch_revoke(env, caller, recipients, token, unlock_time)`
+- `revoke(env, caller, recipient, index)` - Full revocation of unvested schedules
+- `revoke_partial(env, caller, recipient, index, amount_to_revoke)` - Partial revocation
 - `claim(env, recipient, token)`
 
 `deposit` validates recipient/amount arrays, rejects batches larger than 100 entries, stores per-recipient vesting state, and transfers total token amount into contract custody. `batch_revoke` applies the same 100-recipient limit so oversized revocation calls fail before doing per-recipient work. `claim` enforces the lock and transfers vested funds to the recipient.
+
+#### Revocation Semantics
+
+**Full Revocation (`revoke`):**
+- Revokes an entire vesting schedule before it fully vests
+- Calculates vested amount at current time using the same logic as `claim`
+- Returns unvested portion to sender
+- Automatically transfers any vested-but-unclaimed amount to recipient
+- Cannot revoke after `end_time` (fully vested schedules)
+
+**Partial Revocation (`revoke_partial`):**
+- Reduces the `total_amount` of a vesting schedule without removing it entirely
+- Useful for adjusting vesting when employment status changes (e.g., full-time to part-time)
+- **Protected Amount:** Cannot revoke tokens that have already vested, even if unclaimed
+- Revocable amount = `total_amount - max(released_amount, vested_now)`
+- This ensures recipients keep all tokens they've earned under the vesting schedule
+- The schedule remains active with the reduced `total_amount`
+- `released_amount` (claimed tokens) remains unchanged
+
+**Important:** Both revocation functions protect vested tokens. The sender can only revoke the truly unvested portion, ensuring recipients receive what they've earned according to the vesting timeline.
 
 ---
 

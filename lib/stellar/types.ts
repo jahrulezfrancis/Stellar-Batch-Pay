@@ -116,3 +116,27 @@ export interface VestingData {
 }
 
 export type TTLStatus = "healthy" | "warning" | "expired";
+
+// #335: Balance validation types referenced by validator.ts
+export interface HorizonBalance {
+  balance: string;
+  asset_type: "native" | "credit_alphanum4" | "credit_alphanum12";
+  asset_code?: string;
+  asset_issuer?: string;
+}
+
+export interface BalancesMap {
+  [assetKey: string]: number;
+}
+
+export interface BalanceValidationResult {
+  all_sufficient: boolean;
+  checks: Array<{
+    asset_key: string;
+    required: number;
+    available: number;
+    sufficient: boolean;
+    xlm_reserved?: number;
+    xlm_available_after_reserve?: number;
+  }>;
+}

@@ -924,6 +924,9 @@ impl BatchVestingContract {
     ///
     /// The partial revocation reduces `total_amount` but leaves `released_amount`
     /// unchanged. The schedule remains active with the reduced total_amount.
+    ///
+    /// #323: Fixed to prevent revoking vested-but-unclaimed tokens.
+    /// Revocable amount = total_amount - max(released_amount, vested_now)
     pub fn revoke_partial(
         env: Env,
         caller: Address,
@@ -959,9 +962,31 @@ impl BatchVestingContract {
             soroban_sdk::panic_with_error!(&env, VestingError::Unauthorized);
         }
 
-        // #242: Validate that amount_to_revoke does not exceed the revocable amount
-        // Revocable amount = total_amount - released_amount (the unvested portion)
-        let revocable_amount = vesting.total_amount - vesting.released_amount;
+        // #323: Calculate vested amount using the same logic as claim
+        let duration = (vesting.end_time - vesting.start_time) as i128;
+        let elapsed = if current_time > vesting.start_time {
+            (current_time - vesting.start_time) as i128
+        } else {
+            0
+        };
+
+        let vested_now = Self::calculate_vested_amount(
+            &env,
+            vesting.total_amount,
+            elapsed,
+            duration,
+            vesting.vesting_step,
+        );
+
+        // Revocable amount = total_amount - max(released_amount, vested_now)
+        // This ensures we cannot revoke tokens that have already vested, even if unclaimed
+        let protected_amount = if vested_now > vesting.released_amount {
+            vested_now
+        } else {
+            vesting.released_amount
+        };
+        
+        let revocable_amount = vesting.total_amount - protected_amount;
         if amount_to_revoke > revocable_amount {
             soroban_sdk::panic_with_error!(&env, VestingError::InvalidAmount);
         }

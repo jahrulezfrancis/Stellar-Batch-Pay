@@ -3,10 +3,12 @@
  *
  * Called fire-and-forget from the batch-submit route. Updates job state
  * in the job store so the polling endpoint can track progress.
+ * 
+ * #337: Reads signedTransactions from job state for recovery after restart.
  */
 
 import { StellarService } from "./server";
-import { updateJob } from "../job-store";
+import { updateJob, getJob } from "../job-store";
 import { createBatches } from "./batcher";
 import type { PaymentInstruction, BatchResult, PaymentResult } from "./types";
 import { Horizon, TransactionBuilder } from "stellar-sdk";
@@ -16,6 +18,7 @@ import { sumStellarAmounts, formatStellarAmount } from "./utils";
  * Process a batch job in the background. This function must NOT be awaited
  * by the caller — it runs asynchronously and updates job state via the store.
  * #300: Supports both server-side signing (via secretKey) and client-side signing (via signedTransactions).
+ * #337: If signedTransactions are not provided, attempts to read them from the job state.
  */
 export async function processJobInBackground(
   jobId: string,
@@ -27,6 +30,15 @@ export async function processJobInBackground(
   const MAX_OPS = 100;
 
   try {
+    // #337: If signedTransactions not provided, try to load from job state
+    let xdrs = signedTransactions;
+    if (!xdrs || xdrs.length === 0) {
+      const job = getJob(jobId);
+      if (job?.signedTransactions && job.signedTransactions.length > 0) {
+        xdrs = job.signedTransactions;
+      }
+    }
+
     // Create server instance for fee fetching
     const serverUrl = network === 'testnet'
       ? 'https://horizon-testnet.stellar.org'
@@ -34,10 +46,10 @@ export async function processJobInBackground(
     const server = new Horizon.Server(serverUrl);
 
     // #300: Handle pre-signed transactions (client-side signing)
-    if (signedTransactions && signedTransactions.length > 0) {
+    if (xdrs && xdrs.length > 0) {
       updateJob(jobId, {
         status: "processing",
-        totalBatches: signedTransactions.length,
+        totalBatches: xdrs.length,
         completedBatches: 0,
       });
 
@@ -46,8 +58,8 @@ export async function processJobInBackground(
       let failCount = 0;
       const paymentsPerBatch = payments.length > 0 ? Math.min(MAX_OPS, payments.length) : 0;
 
-      for (let i = 0; i < signedTransactions.length; i++) {
-        const xdr = signedTransactions[i];
+      for (let i = 0; i < xdrs.length; i++) {
+        const xdr = xdrs[i];
         const batchPayments = paymentsPerBatch
           ? payments.slice(i * paymentsPerBatch, Math.min((i + 1) * paymentsPerBatch, payments.length))
           : [];
@@ -107,11 +119,11 @@ export async function processJobInBackground(
         status: "completed",
         result: {
           batchId: `batch-${Date.now()}`,
-          totalRecipients: payments.length > 0 ? payments.length : signedTransactions.length,
+          totalRecipients: payments.length > 0 ? payments.length : xdrs.length,
           totalAmount: payments.length > 0
             ? formatStellarAmount(sumStellarAmounts(payments.map(p => p.amount)))
             : "0",
-          totalTransactions: signedTransactions.length,
+          totalTransactions: xdrs.length,
           network,
           timestamp: new Date().toISOString(),
           results: allResults,

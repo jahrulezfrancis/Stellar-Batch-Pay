@@ -109,6 +109,7 @@ function rowToJobState(row: JobRow): JobState {
     totalBatches: row.totalBatches,
     completedBatches: row.completedBatches,
     payments: JSON.parse(row.payments) as PaymentInstruction[],
+    signedTransactions: row.signedTransactions ? (JSON.parse(row.signedTransactions) as string[]) : undefined,
     network: row.network,
     result: row.result ? (JSON.parse(row.result) as BatchResult) : undefined,
     error: row.error ?? undefined,
@@ -124,6 +125,7 @@ function rowToJobState(row: JobRow): JobState {
 /**
  * Create a new job and return its ID.
  * #300: Supports both payment-based (server-side signed) and pre-signed transaction modes.
+ * #337: Persists signedTransactions in the database for recovery after restart.
  */
 export function createJob(
   payments: PaymentInstruction[],
@@ -136,9 +138,17 @@ export function createJob(
   const now = new Date().toISOString();
 
   db.prepare(`
-    INSERT INTO jobs (jobId, publicKey, status, totalBatches, completedBatches, payments, network, createdAt, updatedAt)
-    VALUES (?, ?, 'queued', 0, 0, ?, ?, ?, ?)
-  `).run(jobId, publicKey, JSON.stringify(payments), network, now, now);
+    INSERT INTO jobs (jobId, publicKey, status, totalBatches, completedBatches, payments, signedTransactions, network, createdAt, updatedAt)
+    VALUES (?, ?, 'queued', 0, 0, ?, ?, ?, ?, ?)
+  `).run(
+    jobId, 
+    publicKey, 
+    JSON.stringify(payments), 
+    signedTransactions ? JSON.stringify(signedTransactions) : null,
+    network, 
+    now, 
+    now
+  );
 
   return jobId;
 }

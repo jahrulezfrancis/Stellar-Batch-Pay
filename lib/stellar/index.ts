@@ -5,9 +5,21 @@
 
 export { parseInput, parseJSON, parseCSV, parseFileStream, analyzeParsedPayments, parsePaymentFile, MAX_UPLOAD_ROWS } from './parser';
 export { createBatches, parseAsset, getBatchSummary } from './batcher';
-export { validatePaymentInstruction, validateBatchConfig, validatePaymentInstructions } from './validator';
+export { validatePaymentInstruction, validateBatchConfig, validatePaymentInstructions, validateBalances, buildBalancesMap } from './validator';
 export { fetchFeeStats, getRecommendedFee, getFeeForOperations, clearFeeCache } from './fee-service';
 export type { FeeStats, FeeOptions } from './fee-service';
-export type { PaymentInstruction, Asset, StellarTransaction, PaymentResult, BatchResult, BatchConfig, PaymentValidationRow, ParsedPaymentFile } from './types';
+export type { 
+  PaymentInstruction, 
+  Asset, 
+  StellarTransaction, 
+  PaymentResult, 
+  BatchResult, 
+  BatchConfig, 
+  PaymentValidationRow, 
+  ParsedPaymentFile,
+  HorizonBalance,
+  BalancesMap,
+  BalanceValidationResult
+} from './types';
 export { formatAmount } from './utils';
 export { buildDepositTransaction, buildClaimTransaction, buildRevokeTransaction, buildBumpInstanceTtlTransaction, buildBumpVestingTtlTransaction } from './vesting';
