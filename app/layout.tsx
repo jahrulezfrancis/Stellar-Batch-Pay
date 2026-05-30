@@ -10,8 +10,14 @@ import { NetworkWarning } from "@/components/network-warning";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const _geist = Geist({
+  subsets: ["latin"],
+  variable: "--font-geist-sans",
+});
+const _geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-geist-mono",
+});
 
 export const metadata: Metadata = {
   title: "Stellar BatchPay",
@@ -43,7 +49,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`font-sans antialiased bg-[#0B0F1A] text-white`}>
+      <body className={`${_geist.variable} ${_geistMono.variable} font-sans antialiased bg-[#0B0F1A] text-white`}>
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
