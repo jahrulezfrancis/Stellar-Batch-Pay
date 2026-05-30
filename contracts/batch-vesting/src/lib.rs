@@ -380,14 +380,23 @@ impl BatchVestingContract {
 
     /// Calculate the vested amount using safe checked arithmetic.
     ///
-    /// #299/#303: Direct multiplication `total * current_step` can overflow i128
-    /// for large token amounts or long vesting durations before the division
-    /// brings the value back into range.  All arithmetic now uses checked_mul /
-    /// checked_div so an overflow returns VestingError::Overflow instead of
-    /// panicking or silently wrapping.
-    fn calculate_vested_amount(env: &Env, total: i128, elapsed: i128, duration: i128, step: u64) -> i128 {
+    /// Supports compound "cliff then linear" vesting:
+    ///   - Returns 0 if current_time has not yet reached cliff_time.
+    ///   - After the cliff passes, applies step-based linear vesting measured
+    ///     from start_time (so tokens that accrued between start_time and
+    ///     cliff_time become claimable as soon as the cliff is reached).
+    ///   - When step == 0 all tokens unlock at end_time (pure cliff mode).
+    ///
+    /// #299/#303: All arithmetic uses checked_mul / checked_div so an overflow
+    /// returns VestingError::Overflow instead of panicking or silently wrapping.
+    fn calculate_vested_amount(env: &Env, total: i128, elapsed: i128, duration: i128, cliff_time: u64, current_time: u64, step: u64) -> i128 {
+        // Cliff gate: nothing is claimable before the cliff timestamp.
+        if current_time < cliff_time {
+            return 0;
+        }
+
         if step == 0 {
-            // Default: Cliff behavior — all tokens unlock at end_time
+            // Pure cliff / full-unlock mode: all tokens unlock at end_time.
             if elapsed >= duration {
                 total
             } else {
@@ -975,6 +984,8 @@ impl BatchVestingContract {
             vesting.total_amount,
             elapsed,
             duration,
+            vesting.cliff_time,
+            current_time,
             vesting.vesting_step,
         );
 
@@ -1195,6 +1206,7 @@ impl BatchVestingContract {
             };
             
             let vested_amount = Self::calculate_vested_amount(
+                &env,
                 vesting.total_amount,
                 elapsed,
                 duration,
