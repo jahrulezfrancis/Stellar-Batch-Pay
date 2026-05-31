@@ -1,6 +1,5 @@
 'use client'
 
-import { motion } from 'framer-motion'
 import { X } from 'lucide-react'
 import {
   Table,
@@ -11,6 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
+import { MotionSafe } from '@/components/motion-safe'
 
 interface FeatureRow {
   feature: string

@@ -81,8 +81,8 @@ function toPrintableHtml(rows: ClaimExportRow[], walletAddress: string, fromDate
 }
 
 export function HistoryExportCenter() {
-  const { history, loading } = useBatchHistory(publicKey);
   const { publicKey } = useWallet();
+  const { history, loading } = useBatchHistory(publicKey);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 

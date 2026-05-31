@@ -31,6 +31,7 @@ interface HistoryTableProps {
   searchFilter?: string
   fromFilter?: string
   onPaginationLoad?: (pagination: { totalPages: number; total: number }) => void
+  onRowsLoad?: (rows: HistoricalBatch[]) => void
 }
 
 function formatDate(iso: string): string {
@@ -69,6 +70,7 @@ export function HistoryTable({
   searchFilter,
   fromFilter,
   onPaginationLoad,
+  onRowsLoad,
 }: HistoryTableProps) {
   const router = useRouter()
   const { publicKey } = useWallet()
@@ -123,6 +125,7 @@ export function HistoryTable({
       .then((body) => {
         setRows(body.items)
         onPaginationLoad?.(body.pagination)
+        onRowsLoad?.(body.items)
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load history"))
       .finally(() => setLoading(false))

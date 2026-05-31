@@ -2,8 +2,10 @@
 
 import React, { createContext, useContext, useCallback, useEffect, useState } from "react";
 import { useStellarWallet, SigningMethod } from "@/hooks/use-stellar-wallet";
+import { useFreighter } from "@/hooks/use-freighter";
 import { Sep7Modal } from "@/components/dashboard/Sep7Modal";
 import { Networks } from "stellar-sdk";
+import { isMobileDevice } from "@/lib/stellar/sep7";
 
 export type SorobanNetwork = "mainnet" | "testnet" | "futurenet";
 
@@ -36,6 +38,7 @@ export interface WalletProviderProps {
 
 export function WalletProvider({ children, expectedNetwork = "testnet" }: WalletProviderProps) {
   const wallet = useStellarWallet();
+  const freighter = useFreighter();
   const [selectedNetwork, setSelectedNetwork] = useState<SorobanNetwork>(expectedNetwork);
   const [detectedNetwork, setDetectedNetwork] = useState<SorobanNetwork | null>(null);
   const [networkMismatch, setNetworkMismatch] = useState(false);
@@ -113,10 +116,14 @@ export function WalletProvider({ children, expectedNetwork = "testnet" }: Wallet
     [wallet]
   );
 
+  // On mobile, SEP-7 deep-linking is always viable so treat as installed.
+  // On desktop, reflect real Freighter extension detection from useFreighter.
+  const isInstalled = isMobileDevice() ? true : freighter.isInstalled;
+
   const value: WalletContextType = {
     publicKey: wallet.publicKey,
     isConnecting: wallet.isConnecting,
-    isInstalled: true, // SEP-7 is always "installed"
+    isInstalled,
     error: ledgerError,
     network: detectedNetwork,
     networkMismatch,

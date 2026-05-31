@@ -394,8 +394,6 @@ export function getAllJobs(opts?: JobQueryFilters & {
 // Idempotency key store
 // ---------------------------------------------------------------------------
 
-const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
 /**
  * Look up the jobId previously stored for the given idempotency key.
  * Returns undefined when the key is not found or has expired.

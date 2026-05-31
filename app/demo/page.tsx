@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { FileUpload } from "@/components/file-upload";
 import { BatchSummary } from "@/components/batch-summary";

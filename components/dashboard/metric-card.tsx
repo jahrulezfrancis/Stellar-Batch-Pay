@@ -1,9 +1,9 @@
 "use client"
 
 import Image from "next/image"
-import { motion } from "framer-motion"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { MotionSafe } from "@/components/motion-safe"
 
 export interface MetricCardProps {
   title: string
