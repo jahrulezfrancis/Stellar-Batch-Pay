@@ -183,9 +183,7 @@ export default function NewBatchPaymentPage() {
   const [convertedIndices, setConvertedIndices] = useState<number[]>([]);
   const [batchMeta, setBatchMeta] = useState<BatchMetaEntry[] | undefined>();
   const [batchMetaLoading, setBatchMetaLoading] = useState(false);
-  const { publicKey, signTx } = useWallet();
-  const allowServerSigning =
-    process.env.NEXT_PUBLIC_ALLOW_SERVER_SIGNING === "true";
+  const { publicKey } = useWallet();
 
   const loadBatchMeta = useCallback(
     async (payments: PaymentInstruction[]) => {

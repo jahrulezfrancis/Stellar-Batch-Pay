@@ -72,7 +72,6 @@ export default function BatchDetailPage({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
-  const allowServerSigning = process.env.NEXT_PUBLIC_ALLOW_SERVER_SIGNING === "true";
 
   useEffect(() => {
     let cancelled = false;
@@ -220,7 +219,7 @@ export default function BatchDetailPage({
                 <Download className="h-4 w-4 mr-1.5" />
                 Export CSV
               </Button>
-              {allowServerSigning && data.summary?.failed ? (
+              {data.summary?.failed ? (
                 <Button
                   variant="destructive"
                   size="sm"
