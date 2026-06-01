@@ -26,4 +26,6 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run Vitest suite
-        run: bun test
+        run: bun run test
+        env:
+          CI: 'true'
