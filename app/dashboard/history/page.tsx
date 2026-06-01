@@ -16,6 +16,7 @@ import { MetricsGrid } from "@/components/dashboard/MetricsGrid";
 import { HistoryExportCenter } from "@/components/dashboard/HistoryExportCenter";
 import { Card, CardContent } from "@/components/ui/card";
 import { dateRangeToFrom } from "@/lib/history-filters";
+import { t } from "@/lib/i18n";
 
 // #360: filter + pagination state is owned by the page so the
 // HistoryTable query and Pagination controls actually react to user
@@ -74,9 +75,9 @@ export default function HistoryPage() {
   return (
     <MotionSafe {...pageEnter} className="space-y-8">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight text-white">Batch Payment History</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-white">{t("history.title")}</h1>
         <p className="text-gray-400">
-          Review past batch transactions, track payment statuses, and access detailed reports.
+          {t("history.description")}
         </p>
       </div>
 

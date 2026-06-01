@@ -2045,6 +2045,7 @@ fn test_get_vestings_pagination_overflow() {
         &1000,
         &2000,
         &0,
+        &0,
         &Vec::from_array(&env, [String::from_str(&env, "")])
     );
 
@@ -2075,6 +2076,7 @@ fn test_ttl_bumping() {
         &Vec::from_array(&env, [1000]),
         &1000,
         &2000,
+        &0,
         &0,
         &Vec::from_array(&env, [String::from_str(&env, "")])
     );
@@ -2149,6 +2151,7 @@ fn test_config_enforcement() {
         &amounts,
         &0,
         &2000,
+        &0,
         &0,
         &Vec::from_array(&env, [String::from_str(&env, ""), String::from_str(&env, ""), String::from_str(&env, "")])
     );
@@ -2237,6 +2240,7 @@ fn test_batch_revoke_out_of_order_indices() {
             &0,
             &end,
             &0,
+            &0,
             &Vec::from_array(&env, [String::from_str(&env, "")])
         );
     }
@@ -2299,6 +2303,7 @@ fn test_step_based_vesting() {
         &start_time,
         &end_time,
         &vesting_step,
+        &0,
         &Vec::from_array(&env, [String::from_str(&env, "step test")])
     );
 
@@ -2347,6 +2352,7 @@ fn test_invalid_vesting_step_divisibility() {
         &0,
         &1000,
         &300, // 1000 is not divisible by 300
+        &0,
         &Vec::from_array(&env, [String::from_str(&env, "")])
     );
 }
@@ -2545,6 +2551,45 @@ fn test_partial_claim_zero_amount_fails() {
     env.ledger().with_mut(|li| li.timestamp = 1001);
     // Zero amount must fail with InvalidAmount (#5)
     client.claim(&recipient, &0, &0);
+}
+
+// ── #398: claim_all uses checked arithmetic on released_amount ──────────────
+
+/// Verify that claim_all with a near-i128::MAX schedule does not overflow.
+/// The fix replaces `released_amount += claimable` with checked_add.
+#[test]
+fn test_claim_all_checked_add_no_overflow() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let (token, token_admin) = create_token_contract(&env, &Address::generate(&env));
+
+    // Use i64::MAX as a large but safe amount the token contract accepts.
+    let large_amount: i128 = i64::MAX as i128;
+    token_admin.mint(&sender, &large_amount);
+
+    env.ledger().with_mut(|li| li.timestamp = 0);
+    client.deposit(
+        &sender,
+        &Vec::from_array(&env, [token.address.clone()]),
+        &Vec::from_array(&env, [recipient.clone()]),
+        &Vec::from_array(&env, [large_amount]),
+        &0,
+        &1000,
+        &0,
+        &0,
+        &Vec::from_array(&env, [String::from_str(&env, "")]),
+    );
+
+    // Advance past end_time so the full amount is claimable.
+    env.ledger().with_mut(|li| li.timestamp = 1001);
+    client.claim_all(&recipient);
+    assert_eq!(token.balance(&recipient), large_amount);
 }
 
 // ── #299/#303: Arithmetic safety in calculate_vested_amount ──────────────────

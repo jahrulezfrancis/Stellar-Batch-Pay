@@ -1,15 +1,16 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { FileUpload } from "@/components/file-upload";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Upload, Calendar, Clock, AlertCircle, CheckCircle } from "lucide-react";
+import { Upload, AlertCircle } from "lucide-react";
 import { DashboardWalletEmpty } from "@/components/dashboard/dashboard-wallet-empty";
 import { useWallet } from "@/contexts/WalletContext";
 import { toast } from "sonner";
 import type { PaymentInstruction } from "@/lib/stellar/types";
+import { buildDepositTransaction } from "@/lib/stellar/vesting";
+import { t } from "@/lib/i18n";
 
 interface VestingSchedule {
   id: string;
@@ -36,7 +37,7 @@ interface VestingBatch {
 }
 
 export default function VestingPage() {
-  const { publicKey, expectedNetwork } = useWallet();
+  const { publicKey, expectedNetwork, signTx } = useWallet();
   const [activeTab, setActiveTab] = useState<"deposit" | "manage" | "claim">("deposit");
   const [batches, setBatches] = useState<VestingBatch[]>([]);
   const [currentBatch, setCurrentBatch] = useState<VestingBatch | null>(null);
@@ -52,7 +53,7 @@ export default function VestingPage() {
 
   const handleFileSelect = async (file: File) => {
     if (!publicKey) {
-      toast.error("Please connect your wallet first");
+      toast.error(t("common.walletNotConnected"));
       return;
     }
 
@@ -80,7 +81,7 @@ export default function VestingPage() {
             : Math.floor(Date.now() / 1000),
           endTime: vestingConfig.endDate
             ? Math.floor(new Date(vestingConfig.endDate).getTime() / 1000)
-            : Math.floor(Date.now() / 1000) + 7776000, // 90 days default
+            : Math.floor(Date.now() / 1000) + 7776000,
           vestingStep: parseInt(vestingConfig.vestingStep),
           claimableAmount: "0",
           claimedAmount: "0",
@@ -100,9 +101,9 @@ export default function VestingPage() {
       };
 
       setCurrentBatch(batch);
-      toast.success(`Loaded ${schedules.length} vesting schedules`);
+      toast.success(t("vesting.parsedSchedules", { count: schedules.length }));
     } catch (err) {
-      toast.error("Failed to parse vesting file");
+      toast.error(t("errors.parseFailed"));
       console.error(err);
     } finally {
       setIsUploading(false);
@@ -111,60 +112,97 @@ export default function VestingPage() {
 
   const handleSubmitBatch = async () => {
     if (!currentBatch || !publicKey) {
-      toast.error("No batch to submit or wallet not connected");
+      toast.error(t("common.walletNotConnected"));
       return;
     }
 
     try {
       setIsProcessing(true);
 
-      // Build vesting transaction
-      const buildRes = await fetch("/api/vesting-deposit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          publicKey,
-          network: expectedNetwork,
-          schedules: currentBatch.schedules,
-          contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4", // placeholder
-        }),
-      });
+      const network = expectedNetwork === "mainnet" ? "mainnet" : "testnet";
 
-      if (!buildRes.ok) {
-        const data = await buildRes.json();
-        throw new Error(data.error || "Failed to build transaction");
-      }
+      // Map schedules to PaymentInstruction[]
+      const payments: PaymentInstruction[] = currentBatch.schedules.map((s) => ({
+        address: s.recipient,
+        amount: s.amount,
+        asset: s.asset,
+      }));
 
-      const { xdr } = await buildRes.json();
+      const startTime = vestingConfig.startDate
+        ? Math.floor(new Date(vestingConfig.startDate).getTime() / 1000)
+        : Math.floor(Date.now() / 1000);
 
-      // Sign transaction via wallet
-      const submitRes = await fetch("/api/vesting-submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          xdr,
-          network: expectedNetwork,
-          batchId: currentBatch.id,
-        }),
-      });
+      const endTime = vestingConfig.endDate
+        ? Math.floor(new Date(vestingConfig.endDate).getTime() / 1000)
+        : Math.floor(Date.now() / 1000) + 7776000;
 
-      if (submitRes.ok) {
-        const data = await submitRes.json();
+      const vestingStep = parseInt(vestingConfig.vestingStep);
+
+      const contractId = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
+
+      // Build unsigned Soroban deposit transaction
+      const unsignedXdr = await buildDepositTransaction(
+        contractId,
+        payments,
+        startTime,
+        endTime,
+        vestingStep,
+        network,
+        publicKey,
+      );
+
+      // Sign via wallet
+      const signedXdr = await signTx(unsignedXdr, network);
+
+      // Submit to Soroban RPC
+      const { rpc: SorobanRpc } = await import("stellar-sdk");
+      const rpcUrl = network === "testnet"
+        ? "https://soroban-testnet.stellar.org"
+        : "https://soroban-mainnet.stellar.org";
+      const server = new SorobanRpc.Server(rpcUrl, { allowHttp: false });
+
+      const sendResult = await server.sendTransaction(signedXdr);
+
+      if (sendResult.status === "PENDING" || sendResult.status === "DUPLICATE") {
+        const hash = sendResult.hash;
+
+        // Poll for confirmation
+        let txConfirmed = false;
+        let txHash = hash;
+        for (let i = 0; i < 30; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const getResult = await server.getTransaction(hash);
+          if (getResult.status === "SUCCESS") {
+            txConfirmed = true;
+            txHash = getResult.envelopeXdr
+              ? hash
+              : hash;
+            break;
+          }
+          if (getResult.status === "FAILED") {
+            throw new Error("Transaction failed on-chain");
+          }
+        }
+
+        if (!txConfirmed) {
+          toast.warning("Transaction submitted but not yet confirmed. Check history for updates.");
+        }
+
         const submittedBatch: VestingBatch = {
           ...currentBatch,
           status: "submitted",
           schedules: currentBatch.schedules.map((s) => ({
             ...s,
             status: "vesting" as const,
-            transactionHash: data.transactionHash,
+            transactionHash: txHash,
           })),
         };
         setBatches([...batches, submittedBatch]);
         setCurrentBatch(null);
-        toast.success("Vesting batch submitted successfully");
+        toast.success(t("vesting.submittedSuccess"));
         setActiveTab("manage");
       } else {
-        throw new Error("Failed to submit batch");
+        throw new Error(`Transaction submission failed: ${sendResult.errorResult?.error ?? "Unknown error"}`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Submission failed";
@@ -177,7 +215,7 @@ export default function VestingPage() {
 
   const handleClaim = async (schedule: VestingSchedule) => {
     if (!publicKey) {
-      toast.error("Please connect your wallet first");
+      toast.error(t("common.walletNotConnected"));
       return;
     }
 
@@ -196,7 +234,6 @@ export default function VestingPage() {
       });
 
       if (claimRes.ok) {
-        const data = await claimRes.json();
         toast.success("Claim submitted successfully");
       } else {
         throw new Error("Failed to claim vesting");
@@ -211,7 +248,7 @@ export default function VestingPage() {
 
   const handleRevoke = async (schedules: VestingSchedule[]) => {
     if (!publicKey) {
-      toast.error("Please connect your wallet first");
+      toast.error(t("common.walletNotConnected"));
       return;
     }
 
@@ -250,10 +287,10 @@ export default function VestingPage() {
       {/* Header */}
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold tracking-tight text-white">
-          Batch Vesting Management
+          {t("vesting.title")}
         </h1>
         <p className="text-gray-400">
-          Create and manage time-locked payment schedules on Soroban
+          {t("vesting.description")}
         </p>
       </div>
 
@@ -270,7 +307,7 @@ export default function VestingPage() {
               : "text-gray-400 hover:text-white"
           }`}
         >
-          Deposit
+          {t("vesting.deposit")}
         </button>
         <button
           onClick={() => setActiveTab("manage")}
@@ -280,7 +317,7 @@ export default function VestingPage() {
               : "text-gray-400 hover:text-white"
           }`}
         >
-          Manage
+          {t("vesting.manage")}
         </button>
         <button
           onClick={() => setActiveTab("claim")}
@@ -290,7 +327,7 @@ export default function VestingPage() {
               : "text-gray-400 hover:text-white"
           }`}
         >
-          Claims
+          {t("vesting.claims")}
         </button>
       </div>
 
@@ -299,13 +336,13 @@ export default function VestingPage() {
         <div className="space-y-6">
           <Card className="bg-slate-900/50 border-slate-800">
             <CardHeader>
-              <CardTitle className="text-lg text-white">Upload Vesting Recipients</CardTitle>
+              <CardTitle className="text-lg text-white">{t("vesting.uploadRecipients")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="rounded-lg border-2 border-dashed border-slate-700 p-8 text-center">
                 <Upload className="mx-auto h-8 w-8 text-slate-500 mb-2" />
                 <p className="text-sm text-slate-400 mb-4">
-                  Upload a CSV file with recipient addresses and amounts
+                  {t("vesting.uploadCsv")}
                 </p>
                 <input
                   type="file"
@@ -322,7 +359,7 @@ export default function VestingPage() {
                   disabled={isUploading}
                   className="bg-emerald-500 hover:bg-emerald-600"
                 >
-                  {isUploading ? "Uploading..." : "Choose File"}
+                  {isUploading ? t("vesting.uploading") : t("vesting.chooseFile")}
                 </Button>
               </div>
 
@@ -330,13 +367,13 @@ export default function VestingPage() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="bg-slate-800/50 rounded-lg p-4">
-                      <p className="text-sm text-slate-400">Total Recipients</p>
+                      <p className="text-sm text-slate-400">{t("vesting.totalRecipients")}</p>
                       <p className="text-2xl font-bold text-white">
                         {currentBatch.totalRecipients}
                       </p>
                     </div>
                     <div className="bg-slate-800/50 rounded-lg p-4">
-                      <p className="text-sm text-slate-400">Total Amount</p>
+                      <p className="text-sm text-slate-400">{t("vesting.totalAmount")}</p>
                       <p className="text-2xl font-bold text-white">
                         {parseFloat(currentBatch.totalAmount).toFixed(2)} {currentBatch.schedules[0]?.asset}
                       </p>
@@ -351,7 +388,7 @@ export default function VestingPage() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-400">Start Date</label>
+                      <label className="text-sm font-medium text-slate-400">{t("vesting.startDate")}</label>
                       <Input
                         type="datetime-local"
                         value={vestingConfig.startDate}
@@ -362,7 +399,7 @@ export default function VestingPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-400">End Date</label>
+                      <label className="text-sm font-medium text-slate-400">{t("vesting.endDate")}</label>
                       <Input
                         type="datetime-local"
                         value={vestingConfig.endDate}
@@ -380,14 +417,14 @@ export default function VestingPage() {
                       disabled={isProcessing}
                       className="flex-1 bg-emerald-500 hover:bg-emerald-600"
                     >
-                      {isProcessing ? "Submitting..." : "Submit Vesting Batch"}
+                      {isProcessing ? t("vesting.submitting") : t("vesting.submitBatch")}
                     </Button>
                     <Button
                       onClick={() => setCurrentBatch(null)}
                       variant="outline"
                       className="border-slate-800"
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </Button>
                   </div>
                 </div>
@@ -405,7 +442,7 @@ export default function VestingPage() {
               <CardContent className="p-8 text-center">
                 <AlertCircle className="mx-auto h-8 w-8 text-slate-500 mb-2" />
                 <p className="text-slate-400">
-                  No vesting batches yet. Start by uploading a batch in the Deposit tab.
+                  {t("vesting.noBatches")}
                 </p>
               </CardContent>
             </Card>
@@ -438,6 +475,7 @@ export default function VestingPage() {
                           <th className="text-right p-2 text-slate-400 font-medium">Amount</th>
                           <th className="text-right p-2 text-slate-400 font-medium">Claimable</th>
                           <th className="text-right p-2 text-slate-400 font-medium">Status</th>
+                    <th className="text-right p-2 text-slate-400 font-medium">Tx Hash</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-700/50">
@@ -457,6 +495,20 @@ export default function VestingPage() {
                                 {schedule.status}
                               </span>
                             </td>
+                            <td className="p-2 text-right">
+                              {schedule.transactionHash ? (
+                                <a
+                                  href={`https://stellar.expert/explorer/${expectedNetwork === "mainnet" ? "public" : "testnet"}/tx/${schedule.transactionHash}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] text-emerald-400 hover:underline font-mono"
+                                >
+                                  {schedule.transactionHash.slice(0, 8)}...
+                                </a>
+                              ) : (
+                                <span className="text-[10px] text-slate-600">—</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -469,7 +521,7 @@ export default function VestingPage() {
                       className="w-full"
                       disabled={isProcessing}
                     >
-                      {isProcessing ? "Processing..." : "Revoke All"}
+                      {isProcessing ? t("vesting.processing") : t("vesting.revokeAll")}
                     </Button>
                   </div>
                 </CardContent>
@@ -484,11 +536,11 @@ export default function VestingPage() {
         <div className="space-y-6">
           <Card className="bg-slate-900/50 border-slate-800">
             <CardHeader>
-              <CardTitle className="text-lg text-white">Available Claims</CardTitle>
+              <CardTitle className="text-lg text-white">{t("vesting.availableClaims")}</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-slate-400 mb-4">
-                View and claim vesting tokens that have become available
+                {t("vesting.viewAndClaim")}
               </p>
               {batches
                 .flatMap((batch) =>
@@ -512,7 +564,7 @@ export default function VestingPage() {
                           disabled={isProcessing}
                           className="bg-emerald-500 hover:bg-emerald-600"
                         >
-                          {isProcessing ? "Processing..." : "Claim"}
+                          {isProcessing ? t("vesting.processing") : t("vesting.claim")}
                         </Button>
                       </div>
                     ))
@@ -521,7 +573,7 @@ export default function VestingPage() {
               {batches.flatMap((b) => b.schedules).filter((s) => s.status === "claimable")
                 .length === 0 && (
                 <p className="text-slate-400 text-center py-8">
-                  No claimable vesting tokens at this time
+                  {t("vesting.noClaimableTokens")}
                 </p>
               )}
             </CardContent>

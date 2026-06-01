@@ -111,6 +111,7 @@ export async function buildDepositTransaction(
   payments: PaymentInstruction[],
   startTime: number,
   endTime: number,
+  cliffTime: number,
   vestingStep: number,
   network: "testnet" | "mainnet",
   publicKey: string,
@@ -141,15 +142,16 @@ export async function buildDepositTransaction(
     const memos = payments.map((p) => p.memo || "");
 
     const operation = contract.call(
-      "deposit",
-      new Address(publicKey).toScVal(), // sender: Address
-      addressVecToScVal(tokens), // tokens: Vec<Address>
-      addressVecToScVal(recipients), // recipients: Vec<Address>
-      amountVecToScVal(amounts), // amounts: Vec<i128>
-      nativeToScVal(BigInt(startTime), { type: "u64" }), // start_time: u64
-      nativeToScVal(BigInt(endTime), { type: "u64" }), // end_time: u64
-      nativeToScVal(BigInt(vestingStep), { type: "u64" }), // vesting_step: u64
-      xdr.ScVal.scvVec(memos.map((m) => nativeToScVal(m, { type: "string" }))), // memos: Vec<String>
+      'deposit',
+      new Address(publicKey).toScVal(),          // sender: Address
+      addressVecToScVal(tokens),                  // tokens: Vec<Address>
+      addressVecToScVal(recipients),              // recipients: Vec<Address>
+      amountVecToScVal(amounts),                  // amounts: Vec<i128>
+      nativeToScVal(BigInt(startTime), { type: 'u64' }), // start_time: u64
+      nativeToScVal(BigInt(endTime), { type: 'u64' }),   // end_time: u64
+      nativeToScVal(BigInt(cliffTime), { type: 'u64' }), // cliff_time: u64
+      nativeToScVal(BigInt(vestingStep), { type: 'u64' }), // vesting_step: u64
+      xdr.ScVal.scvVec(memos.map(m => nativeToScVal(m, { type: 'string' }))) // memos: Vec<String>
     );
 
     const tx = new TransactionBuilder(account, {

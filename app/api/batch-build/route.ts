@@ -34,6 +34,7 @@ import {
 import type { PaymentInstruction, HorizonBalance } from "@/lib/stellar/types";
 import { getRecommendedFee } from "@/lib/stellar/fee-service";
 import { MAX_UPLOAD_ROWS } from "@/lib/stellar/parser";
+import { truncateMemoToBytes } from "@/lib/stellar/utils";
 import { applyRateLimit, setRateLimitHeaders } from "@/lib/api-rate-limit";
 
 interface RequestBody {
@@ -143,6 +144,8 @@ export async function POST(request: NextRequest) {
       network === "testnet" ? Networks.TESTNET : Networks.PUBLIC;
 
     const xdrs: string[] = [];
+    // #396: collect indices of rows skipped due to per-row validation failure
+    const omittedRows: number[] = [];
 
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
@@ -156,10 +159,10 @@ export async function POST(request: NextRequest) {
         const memoType = firstMemoPayment.memoType ?? 'text';
         memo = memoType === 'id'
           ? Memo.id(firstMemoPayment.memo)
-          : Memo.text(firstMemoPayment.memo);
+          : Memo.text(truncateMemoToBytes(firstMemoPayment.memo));
       } else {
         const memoId = `bp-${Date.now()}-${i}`;
-        memo = Memo.text(memoId.slice(0, 28));
+        memo = Memo.text(truncateMemoToBytes(memoId));
       }
 
       let builder = new TransactionBuilder(sourceAccount, {
@@ -169,7 +172,12 @@ export async function POST(request: NextRequest) {
 
       for (const payment of batch.payments) {
         const pv = validatePaymentInstruction(payment);
-        if (!pv.valid) continue;
+        if (!pv.valid) {
+          // #396: track omitted row indices instead of silently skipping
+          const originalIndex = payments.indexOf(payment);
+          omittedRows.push(originalIndex);
+          continue;
+        }
 
         const asset = parseAsset(payment.asset);
         const stellarAsset =
@@ -191,6 +199,21 @@ export async function POST(request: NextRequest) {
 
       // Increment sequence number for next transaction
       sourceAccount.incrementSequenceNumber();
+    }
+
+    // #396: if any rows were silently skipped, return 422 with the list of
+    // omitted row indices so callers are never surprised by a short XDR.
+    if (omittedRows.length > 0) {
+      return setRateLimitHeaders(
+        NextResponse.json(
+          {
+            error: "Some payment rows failed per-row validation and were omitted.",
+            omittedRows,
+          },
+          { status: 422 },
+        ),
+        rate,
+      );
     }
 
     return setRateLimitHeaders(safeJsonResponse({

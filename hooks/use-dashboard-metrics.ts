@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 export interface DashboardMetricsTimeSeriesPoint {
   date: string;
@@ -19,55 +19,48 @@ export interface DashboardMetrics {
   timeSeries?: DashboardMetricsTimeSeriesPoint[];
 }
 
+async function fetchDashboardMetrics(
+  publicKey: string,
+  network: "testnet" | "mainnet",
+  range?: "7d" | "30d" | "90d",
+): Promise<DashboardMetrics> {
+  const params = new URLSearchParams({ publicKey, network });
+  if (range) params.set("range", range);
+
+  const response = await fetch(`/api/dashboard-metrics?${params.toString()}`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch metrics: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
 export function useDashboardMetrics(
   publicKey: string | null,
   network: "testnet" | "mainnet",
   range?: "7d" | "30d" | "90d",
 ) {
-  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const queryKey = ["dashboard-metrics", publicKey, network, range] as const;
 
-  useEffect(() => {
-    if (!publicKey) {
-      setMetrics(null);
-      return;
-    }
+  const { data: metrics, isLoading, error } = useQuery({
+    queryKey,
+    queryFn: () => fetchDashboardMetrics(publicKey!, network, range),
+    enabled: !!publicKey,
+    staleTime: 30 * 1000,
+    placeholderData: () => null,
+  });
 
-    const fetchMetrics = async () => {
-      setLoading(true);
-      setError(null);
+  const fallbackMetrics: DashboardMetrics = {
+    totalPayments: 0,
+    totalAmountSent: "0 XLM",
+    successRate: "0.0%",
+    activeBatches: 0,
+  };
 
-      try {
-        const params = new URLSearchParams({
-          publicKey,
-          network,
-        });
-        if (range) params.set("range", range);
-        const response = await fetch(`/api/dashboard-metrics?${params.toString()}`);
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch metrics: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        setMetrics(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Unknown error");
-        // Set default metrics when there's an error
-        setMetrics({
-          totalPayments: 0,
-          totalAmountSent: "0 XLM",
-          successRate: "0.0%",
-          activeBatches: 0,
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchMetrics();
-  }, [publicKey, network, range]);
-
-  return { metrics, loading, error };
+  return {
+    metrics: metrics ?? fallbackMetrics,
+    loading: isLoading,
+    error: error ? (error instanceof Error ? error.message : "Unknown error") : null,
+  };
 }

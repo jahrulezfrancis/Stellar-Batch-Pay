@@ -1,72 +1,51 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BatchResult } from '@/lib/stellar/types';
-import { getBatchHistory, setCachedHistory, clearCachedHistory } from '@/lib/batch-history-adapter';
+import { fetchBatchHistory, setCachedHistory, clearCachedHistory } from '@/lib/batch-history-adapter';
 
-/**
- * #341: Unified batch history hook
- * 
- * Uses the server-side SQLite job store as the source of truth,
- * with localStorage as an offline cache with TTL.
- */
 export function useBatchHistory(publicKey?: string | null) {
-  const [history, setHistory] = useState<BatchResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const queryKey = ['batch-history', publicKey] as const;
 
-  // Load history from server (with cache fallback)
-  const loadHistory = useCallback(async (forceRefresh = false) => {
-    if (!publicKey) {
-      setHistory([]);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const items = await getBatchHistory(publicKey, { forceRefresh });
-      setHistory(items);
-    } catch (e) {
-      console.error('Failed to load batch history', e);
-      setError(e instanceof Error ? e.message : 'Failed to load history');
-    } finally {
-      setLoading(false);
-    }
-  }, [publicKey]);
-
-  // Load on mount and when publicKey changes
-  useEffect(() => {
-    void loadHistory();
-  }, [loadHistory]);
+  const { data: history = [], isLoading, error } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const items = await fetchBatchHistory(publicKey!, { limit: 50 });
+      setCachedHistory(items);
+      return items;
+    },
+    enabled: !!publicKey,
+    staleTime: 30 * 1000,
+    placeholderData: (previousData) => previousData ?? [],
+  });
 
   const saveResult = useCallback((result: BatchResult) => {
-    setHistory((prev) => {
+    queryClient.setQueryData<BatchResult[]>(queryKey, (prev = []) => {
       const newHistory = [result, ...prev].slice(0, 50);
-      // Update cache
       setCachedHistory(newHistory);
       return newHistory;
     });
-  }, []);
+  }, [queryClient, queryKey]);
 
-  const getLatestResult = useCallback(() => {
+  const getLatestResult = useCallback((): BatchResult | null => {
     return history[0] || null;
   }, [history]);
 
   const clearHistory = useCallback(() => {
     clearCachedHistory();
-    setHistory([]);
-  }, []);
+    queryClient.setQueryData<BatchResult[]>(queryKey, []);
+  }, [queryClient, queryKey]);
 
   const refresh = useCallback(() => {
-    return loadHistory(true);
-  }, [loadHistory]);
+    return queryClient.invalidateQueries({ queryKey });
+  }, [queryClient, queryKey]);
 
   return {
     history,
-    loading,
-    error,
+    loading: isLoading,
+    error: error ? (error instanceof Error ? error.message : 'Failed to load history') : null,
     saveResult,
     getLatestResult,
     clearHistory,

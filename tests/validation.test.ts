@@ -10,6 +10,7 @@ import {
   validateBatchConfig,
   validatePaymentInstructions,
   validateMemo,
+  validateBatchForSubmit,
 } from '../lib/stellar/validator';
 
 const validSecretKey = Keypair.random().secret();
@@ -305,5 +306,58 @@ describe('Batch Validation', () => {
     expect(result.valid).toBe(false);
     expect(result.errors.size).toBe(1);
     expect(result.errors.has(1)).toBe(true);
+  });
+});
+
+describe('validateBatchForSubmit', () => {
+  test('validates correct batch submission', () => {
+    const result = validateBatchForSubmit(
+      [
+        {
+          address: validAddress,
+          amount: '100',
+          asset: 'XLM',
+        },
+      ],
+      { XLM: 200 },
+      [],
+      'testnet',
+    );
+    expect(result.valid).toBe(true);
+    expect(result.errors.length).toBe(0);
+  });
+
+  test('reports insufficient XLM balance', () => {
+    const result = validateBatchForSubmit(
+      [
+        {
+          address: validAddress,
+          amount: '100',
+          asset: 'XLM',
+        },
+      ],
+      { XLM: 50 },
+      [],
+      'testnet',
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(' ')).toContain('Insufficient balance for XLM');
+  });
+
+  test('reports missing trustline warnings', () => {
+    const result = validateBatchForSubmit(
+      [
+        {
+          address: validAddress,
+          amount: '100',
+          asset: `USDC:${validIssuer}`,
+        },
+      ],
+      { [`USDC:${validIssuer}`]: 200 },
+      [validAddress],
+      'testnet',
+    );
+    expect(result.valid).toBe(true); // missing trustline is only a warning
+    expect(result.warnings.join(' ')).toContain('missing trustline');
   });
 });

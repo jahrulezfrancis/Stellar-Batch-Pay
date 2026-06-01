@@ -1,27 +1,8 @@
 "use client";
 
-/**
- * Batch detail page (#368).
- *
- * Previously, the History page's "View Details" action opened the
- * raw `/api/batch-status/:jobId` JSON in a new tab — fine for an
- * engineer, intimidating for an operations user. This page formats
- * the same job into:
- *
- *   - A header card with job id, network, totals.
- *   - A per-recipient status table with each transaction hash linked
- *     to the appropriate Stellar explorer (testnet vs mainnet).
- *   - "Copy hash" + "Open on stellar.expert" actions per recipient.
- *   - "Export Results" (#311) buttons for CSV + printable HTML so
- *     accounting / payroll teams can pull records without leaving
- *     the dashboard.
- *
- * The URL is deep-linkable so support tickets can reference a
- * specific batch by job id.
- */
-
-import { use, useEffect, useState } from "react";
+import { use, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { MotionSafe } from "@/components/motion-safe";
 import { DashboardWalletEmpty } from "@/components/dashboard/dashboard-wallet-empty";
@@ -60,6 +41,16 @@ function downloadFile(filename: string, contents: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
+async function fetchBatchDetail(jobId: string, publicKey: string): Promise<BatchDetailView> {
+  const params = new URLSearchParams({ publicKey });
+  const res = await fetch(`/api/batch-status/${jobId}?${params.toString()}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load batch (HTTP ${res.status})`);
+  }
+  const body = await res.json();
+  return mapBatchStatusToDetailView(body);
+}
+
 export default function BatchDetailPage({
   params,
 }: {
@@ -68,45 +59,16 @@ export default function BatchDetailPage({
   const { jobId } = use(params);
   const router = useRouter();
   const { publicKey } = useWallet();
-  const [data, setData] = useState<BatchDetailView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
-  const allowServerSigning = process.env.NEXT_PUBLIC_ALLOW_SERVER_SIGNING === "true";
 
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!publicKey) {
-      setData(null);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const params = new URLSearchParams({ publicKey });
-        const res = await fetch(`/api/batch-status/${jobId}?${params.toString()}`);
-        if (!res.ok) {
-          throw new Error(`Failed to load batch (HTTP ${res.status})`);
-        }
-        const body = await res.json();
-        if (!cancelled) setData(mapBatchStatusToDetailView(body));
-      } catch (e) {
-        if (!cancelled) setError((e as Error).message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [jobId, publicKey]);
+  const { data, error, isLoading } = useQuery({
+    queryKey: ["job", jobId, publicKey],
+    queryFn: () => fetchBatchDetail(jobId, publicKey!),
+    enabled: !!publicKey,
+    staleTime: 5 * 1000,
+    refetchInterval: (query) =>
+      query.state.data?.status === "completed" || query.state.data?.status === "failed" ? false : 5000,
+  });
 
   const handleRetry = async () => {
     if (!data?.summary?.failed) {
@@ -175,13 +137,13 @@ export default function BatchDetailPage({
           </div>
         </CardHeader>
         <CardContent>
-          {loading && (
+          {isLoading && (
             <div className="flex items-center gap-2 text-gray-400">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading job…
             </div>
           )}
-          {!loading && !publicKey && <DashboardWalletEmpty className="border-none bg-transparent" />}
-          {error && <p className="text-red-300">{error}</p>}
+          {!isLoading && !publicKey && <DashboardWalletEmpty className="border-none bg-transparent" />}
+          {error && <p className="text-red-300">{(error as Error).message}</p>}
           {data && (
             <div className="grid sm:grid-cols-3 gap-4 text-sm">
               <Metric label="Recipients" value={data.recipients.length} />
@@ -220,7 +182,7 @@ export default function BatchDetailPage({
                 <Download className="h-4 w-4 mr-1.5" />
                 Export CSV
               </Button>
-              {allowServerSigning && data.summary?.failed ? (
+              {data.summary?.failed ? (
                 <Button
                   variant="destructive"
                   size="sm"

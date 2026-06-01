@@ -1,0 +1,447 @@
+"use client";
+
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { toast } from "sonner";
+import { useWallet } from "@/contexts/WalletContext";
+import { parsePaymentFile, analyzeParsedPayments } from "@/lib/stellar/parser";
+import { getBatchSummary } from "@/lib/stellar/summary";
+import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
+import type {
+  ParsedPaymentFile,
+  BatchResult,
+  JobStatus,
+  PaymentInstruction,
+  BatchMetaEntry,
+} from "@/lib/stellar/types";
+
+async function buildBatchSubmitIdempotencyKey(body: {
+  payments?: PaymentInstruction[];
+  network: "testnet" | "mainnet";
+  publicKey: string;
+}) {
+  const canonicalBody = canonicalizeIdempotencyPayload({
+    payments: body.payments ?? null,
+    network: body.network,
+    publicKey: body.publicKey,
+  });
+
+  const webCrypto = globalThis.crypto;
+
+  if (!webCrypto?.subtle) {
+    return webCrypto?.randomUUID() ?? `${Date.now()}-${Math.random()}`;
+  }
+
+  const encoded = new TextEncoder().encode(canonicalBody);
+  const digest = await webCrypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+interface BatchFlowContextType {
+  step: number;
+  setStep: (step: number) => void;
+  selectedNetwork: "testnet" | "mainnet";
+  setSelectedNetwork: (network: "testnet" | "mainnet") => void;
+  file: File | null;
+  setFile: (file: File | null) => void;
+  fileFormat: "json" | "csv" | null;
+  setFileFormat: (format: "json" | "csv" | null) => void;
+  validationResult: ParsedPaymentFile | null;
+  setValidationResult: (res: ParsedPaymentFile | null) => void;
+  validationError: string;
+  setValidationError: (err: string) => void;
+  summary: {
+    recipientCount: number;
+    validCount: number;
+    invalidCount: number;
+    totalAmount: string;
+    assetBreakdown: Record<string, number>;
+  } | null;
+  setSummary: (summary: any) => void;
+  isSubmitting: boolean;
+  setIsSubmitting: (submitting: boolean) => void;
+  result: BatchResult | null;
+  setResult: (res: BatchResult | null) => void;
+  jobId: string | null;
+  setJobId: (id: string | null) => void;
+  jobStatus: JobStatus;
+  setJobStatus: (status: JobStatus) => void;
+  completedBatches: number;
+  setCompletedBatches: (count: number) => void;
+  totalBatches: number;
+  setTotalBatches: (count: number) => void;
+  manualPayments: PaymentInstruction[];
+  setManualPayments: React.Dispatch<React.SetStateAction<PaymentInstruction[]>>;
+  entryMode: "upload" | "manual";
+  setEntryMode: (mode: "upload" | "manual") => void;
+  skippedIndices: number[];
+  setSkippedIndices: React.Dispatch<React.SetStateAction<number[]>>;
+  convertedIndices: number[];
+  setConvertedIndices: React.Dispatch<React.SetStateAction<number[]>>;
+  batchMeta: BatchMetaEntry[] | undefined;
+  setBatchMeta: (meta: BatchMetaEntry[] | undefined) => void;
+  batchMetaLoading: boolean;
+  setBatchMetaLoading: (loading: boolean) => void;
+
+  // Actions
+  onSkipToggle: (index: number) => void;
+  onConvertToggle: (index: number) => void;
+  handleRetryFailed: (failedPayments: PaymentInstruction[]) => void;
+  handleFileSelect: (selectedFile: File, format: "json" | "csv") => Promise<void>;
+  handleManualContinue: () => void;
+  loadBatchMeta: (payments: PaymentInstruction[]) => Promise<void>;
+  onSubmit: (filteredPayments: PaymentInstruction[]) => Promise<void>;
+  handleRestore: (saved: any) => void;
+}
+
+const BatchFlowContext = createContext<BatchFlowContextType | undefined>(undefined);
+
+export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
+  const [step, setStep] = useState(1);
+  const [selectedNetwork, setSelectedNetwork] = useState<"testnet" | "mainnet">("testnet");
+  const [file, setFile] = useState<File | null>(null);
+  const [fileFormat, setFileFormat] = useState<"json" | "csv" | null>(null);
+  const [validationResult, setValidationResult] = useState<ParsedPaymentFile | null>(null);
+  const [validationError, setValidationError] = useState("");
+  const [summary, setSummary] = useState<{
+    recipientCount: number;
+    validCount: number;
+    invalidCount: number;
+    totalAmount: string;
+    assetBreakdown: Record<string, number>;
+  } | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [result, setResult] = useState<BatchResult | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobStatus>("queued");
+  const [completedBatches, setCompletedBatches] = useState(0);
+  const [totalBatches, setTotalBatches] = useState(0);
+  const [manualPayments, setManualPayments] = useState<PaymentInstruction[]>([]);
+  const [entryMode, setEntryMode] = useState<"upload" | "manual">("upload");
+  const [skippedIndices, setSkippedIndices] = useState<number[]>([]);
+  const [convertedIndices, setConvertedIndices] = useState<number[]>([]);
+  const [batchMeta, setBatchMeta] = useState<BatchMetaEntry[] | undefined>();
+  const [batchMetaLoading, setBatchMetaLoading] = useState(false);
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { publicKey } = useWallet();
+
+  // Sync state to sessionStorage to prevent data loss on render crashes
+  useEffect(() => {
+    const stateToSave = {
+      step,
+      selectedNetwork,
+      validationResult,
+      summary,
+      manualPayments,
+      entryMode,
+    };
+    if (validationResult || manualPayments.length > 0) {
+      sessionStorage.setItem("new_batch_state", JSON.stringify(stateToSave));
+    }
+  }, [
+    step,
+    selectedNetwork,
+    validationResult,
+    summary,
+    manualPayments,
+    entryMode,
+  ]);
+
+  // Restore state from sessionStorage
+  const handleRestore = useCallback((saved: any) => {
+    if (saved.step) setStep(saved.step);
+    if (saved.selectedNetwork) setSelectedNetwork(saved.selectedNetwork);
+    if (saved.validationResult) setValidationResult(saved.validationResult);
+    if (saved.summary) setSummary(saved.summary);
+    if (saved.manualPayments) setManualPayments(saved.manualPayments);
+    if (saved.entryMode) setEntryMode(saved.entryMode);
+  }, []);
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem("new_batch_state");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        handleRestore(parsed);
+      } catch (e) {
+        console.error("Failed to restore new_batch_state:", e);
+      }
+    }
+  }, [handleRestore]);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback(
+    (id: string, ownerPublicKey: string) => {
+      stopPolling();
+      pollRef.current = setInterval(async () => {
+        try {
+          const params = new URLSearchParams({ publicKey: ownerPublicKey });
+          const res = await fetch(
+            `/api/batch-status/${id}?${params.toString()}`,
+          );
+          if (!res.ok) return;
+          const data = await res.json();
+          setJobStatus(data.status);
+          setCompletedBatches(data.completedBatches ?? 0);
+          setTotalBatches(data.totalBatches ?? 0);
+          if (data.status === "completed") {
+            stopPolling();
+            setResult(data.result ?? null);
+            setIsSubmitting(false);
+            setStep(4);
+            toast.success("Batch submitted successfully");
+          } else if (data.status === "failed") {
+            stopPolling();
+            setIsSubmitting(false);
+            toast.error(data.error ?? "Batch processing failed");
+          }
+        } catch {
+          // ignore transient fetch errors
+        }
+      }, 2000);
+    },
+    [stopPolling],
+  );
+
+  useEffect(() => () => stopPolling(), [stopPolling]);
+
+  const loadBatchMeta = useCallback(
+    async (payments: PaymentInstruction[]) => {
+      if (!publicKey || payments.length === 0) {
+        setBatchMeta(undefined);
+        return;
+      }
+
+      setBatchMetaLoading(true);
+      try {
+        const response = await fetch("/api/batch-build", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            payments,
+            network: selectedNetwork,
+            publicKey,
+          }),
+        });
+        const data = await response.json();
+        if (response.ok) {
+          setBatchMeta(data.batchMeta);
+        } else {
+          setBatchMeta(undefined);
+        }
+      } catch {
+        setBatchMeta(undefined);
+      } finally {
+        setBatchMetaLoading(false);
+      }
+    },
+    [publicKey, selectedNetwork],
+  );
+
+  const handleSkipToggle = useCallback((index: number) => {
+    setSkippedIndices((prev) => {
+      const next = [...prev];
+      const idx = next.indexOf(index);
+      if (idx >= 0) {
+        next.splice(idx, 1);
+      } else {
+        next.push(index);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleConvertToggle = useCallback((index: number) => {
+    setConvertedIndices((prev) => {
+      const next = [...prev];
+      const idx = next.indexOf(index);
+      if (idx >= 0) {
+        next.splice(idx, 1);
+      } else {
+        next.push(index);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleRetryFailed = useCallback((failedPayments: PaymentInstruction[]) => {
+    const rows = failedPayments.map((instruction, index) => ({
+      rowNumber: index + 1,
+      instruction,
+      valid: true,
+    }));
+
+    setValidationResult({
+      rows,
+      validPayments: failedPayments,
+      invalidCount: 0,
+    });
+    setSummary(getBatchSummary(failedPayments));
+    setSkippedIndices([]);
+    setConvertedIndices([]);
+    setStep(2);
+    toast.success(
+      "Loaded failed payments for retry. Review before resubmitting.",
+    );
+  }, []);
+
+  const handleFileSelect = useCallback(async (
+    selectedFile: File,
+    format: "json" | "csv",
+  ) => {
+    setFile(selectedFile);
+    setFileFormat(format);
+
+    try {
+      const content = await selectedFile.text();
+      const parsed = parsePaymentFile(content, format);
+      setValidationResult(parsed);
+      setValidationError("");
+
+      const instructions = parsed.rows.map((r) => r.instruction);
+      const batchSummary = getBatchSummary(instructions);
+      setSummary(batchSummary);
+
+      toast.success("File parsed and validated successfully");
+      setStep(2);
+    } catch (error) {
+      console.error("Failed to parse file:", error);
+      setValidationResult(null);
+      setSummary(null);
+      setValidationError(
+        error instanceof Error ? error.message : "Failed to parse payment file",
+      );
+      toast.error(
+        error instanceof Error ? error.message : "Failed to parse payment file",
+      );
+    }
+  }, []);
+
+  const handleManualContinue = useCallback(() => {
+    if (manualPayments.length === 0) {
+      toast.error("Please add at least one recipient");
+      return;
+    }
+
+    const parsed = analyzeParsedPayments(manualPayments);
+    setValidationResult(parsed);
+    setValidationError("");
+
+    const batchSummary = getBatchSummary(manualPayments);
+    setSummary(batchSummary);
+
+    toast.success("Manual batch validated successfully");
+    setStep(2);
+  }, [manualPayments]);
+
+  const onSubmit = useCallback(async (filteredPayments: PaymentInstruction[]) => {
+    if (!publicKey) return;
+    setIsSubmitting(true);
+    try {
+      const response = await fetch("/api/batch-submit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": await buildBatchSubmitIdempotencyKey({
+            payments: filteredPayments,
+            network: selectedNetwork,
+            publicKey,
+          }),
+        },
+        body: JSON.stringify({
+          payments: filteredPayments,
+          network: selectedNetwork,
+          publicKey,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to submit batch");
+      }
+      setJobId(data.jobId);
+      setJobStatus("queued");
+      setCompletedBatches(0);
+      setTotalBatches(0);
+      startPolling(data.jobId, publicKey);
+    } catch (error) {
+      console.error("Batch submission error:", error);
+      setIsSubmitting(false);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to submit batch",
+      );
+    }
+  }, [publicKey, selectedNetwork, startPolling]);
+
+  return (
+    <BatchFlowContext.Provider
+      value={{
+        step,
+        setStep,
+        selectedNetwork,
+        setSelectedNetwork,
+        file,
+        setFile,
+        fileFormat,
+        setFileFormat,
+        validationResult,
+        setValidationResult,
+        validationError,
+        setValidationError,
+        summary,
+        setSummary,
+        isSubmitting,
+        setIsSubmitting,
+        result,
+        setResult,
+        jobId,
+        setJobId,
+        jobStatus,
+        setJobStatus,
+        completedBatches,
+        setCompletedBatches,
+        totalBatches,
+        setTotalBatches,
+        manualPayments,
+        setManualPayments,
+        entryMode,
+        setEntryMode,
+        skippedIndices,
+        setSkippedIndices,
+        convertedIndices,
+        setConvertedIndices,
+        batchMeta,
+        setBatchMeta,
+        batchMetaLoading,
+        setBatchMetaLoading,
+        onSkipToggle: handleSkipToggle,
+        onConvertToggle: handleConvertToggle,
+        handleRetryFailed,
+        handleFileSelect,
+        handleManualContinue,
+        loadBatchMeta,
+        onSubmit,
+        handleRestore,
+      }}
+    >
+      {children}
+    </BatchFlowContext.Provider>
+  );
+}
+
+export function useBatchFlow() {
+  const context = useContext(BatchFlowContext);
+  if (context === undefined) {
+    throw new Error("useBatchFlow must be used within a BatchFlowProvider");
+  }
+  return context;
+}

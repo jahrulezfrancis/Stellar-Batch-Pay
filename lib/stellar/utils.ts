@@ -2,6 +2,29 @@ import Big from 'big.js'
 import { Asset as StellarAsset } from 'stellar-sdk'
 
 /**
+ * Truncates a string to at most `maxBytes` UTF-8 bytes without splitting
+ * multi-byte characters (emoji, CJK, accented chars, etc.).
+ *
+ * Stellar MEMO_TEXT must be ≤ 28 bytes UTF-8.  JavaScript's String.slice
+ * operates on code units, not bytes, so a naive `.slice(0, 28)` can still
+ * exceed 28 bytes for non-ASCII input.
+ *
+ * @param value    The string to truncate
+ * @param maxBytes Maximum byte length (default 28 for Stellar MEMO_TEXT)
+ * @returns A string whose UTF-8 encoding is ≤ maxBytes bytes
+ */
+export function truncateMemoToBytes(value: string, maxBytes = 28): string {
+  const encoder = new TextEncoder();
+  const encoded = encoder.encode(value);
+  if (encoded.length <= maxBytes) return value;
+  // Decode only the first maxBytes bytes; TextDecoder ignores incomplete
+  // multi-byte sequences at the boundary via the default replacement behaviour,
+  // but we want clean truncation so we trim trailing incomplete sequences.
+  const slice = encoded.slice(0, maxBytes);
+  return new TextDecoder('utf-8', { fatal: false }).decode(slice).replace(/�+$/, '');
+}
+
+/**
  * Formats a Stellar amount string or number to show up to 7 decimal places
  * and trims any trailing zeros.
  * 

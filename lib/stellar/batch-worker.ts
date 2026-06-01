@@ -11,7 +11,7 @@ import { StellarService } from "./server";
 import { updateJob, getJob, incrementCompletedBatches } from "../job-store";
 import { createBatches } from "./batcher";
 import type { PaymentInstruction, BatchResult, PaymentResult } from "./types";
-import { Horizon, TransactionBuilder } from "stellar-sdk";
+import { Horizon, TransactionBuilder, Networks } from "stellar-sdk";
 import { sumStellarAmounts, formatStellarAmount } from "./utils";
 import { horizonUrl } from "./network-config";
 import { logger } from "../logger";
@@ -77,7 +77,7 @@ export async function processJobInBackground(
           : [];
 
         try {
-          const tx = TransactionBuilder.fromXDR(xdr, network === 'testnet' ? 'TESTNET' : 'PUBLIC');
+          const tx = TransactionBuilder.fromXDR(xdr, network === 'testnet' ? Networks.TESTNET : Networks.PUBLIC);
           const result = await server.submitTransaction(tx);
 
           logger.info({ requestId, jobId, batchIndex: i, transactionHash: result.hash }, "Batch transaction submitted successfully (pre-signed mode)");

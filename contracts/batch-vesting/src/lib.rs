@@ -1385,7 +1385,10 @@ impl BatchVestingContract {
                 let token_client = token::Client::new(&env, &vesting.token);
                 token_client.transfer(&env.current_contract_address(), &recipient, &claimable);
 
-                vesting.released_amount += claimable;
+                vesting.released_amount = vesting
+                    .released_amount
+                    .checked_add(claimable)
+                    .unwrap_or_else(|| soroban_sdk::panic_with_error!(&env, VestingError::Overflow));
                 claimed_something = true;
 
                 if vesting.released_amount >= vesting.total_amount {

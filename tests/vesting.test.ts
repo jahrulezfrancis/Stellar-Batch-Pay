@@ -90,7 +90,8 @@ describe('buildDepositTransaction (#364)', () => {
       payments,
       1_700_000_000,
       1_800_000_000,
-      86_400,
+      86_400, // cliffTime
+      86_400, // vestingStep
       'testnet',
       sender,
     );
@@ -113,7 +114,8 @@ describe('buildDepositTransaction (#364)', () => {
         payments,
         1_700_000_000,
         1_700_000_100,
-        86_400,
+        86_400, // cliffTime
+        86_400, // vestingStep
         'testnet',
         sender,
       ),

@@ -9,7 +9,7 @@ import { isMobileDevice } from "@/lib/stellar/sep7";
 
 export type SorobanNetwork = "mainnet" | "testnet" | "futurenet";
 
-interface WalletContextType {
+export interface WalletConnectionContextType {
   publicKey: string | null;
   isConnecting: boolean;
   isInstalled: boolean | null;
@@ -17,19 +17,23 @@ interface WalletContextType {
   network: SorobanNetwork | null;
   networkMismatch: boolean;
   expectedNetwork: SorobanNetwork;
+  method: SigningMethod | null;
+  sep7Uri: string | null;
+  isSep7ModalOpen: boolean;
+  ledger: ReturnType<typeof import("@/hooks/use-ledger").useLedger>;
+}
+
+export interface WalletActionsContextType {
   connect: () => Promise<void>;
   disconnect: () => void;
   signTx: (xdr: string, network: SorobanNetwork) => Promise<string>;
   selectNetwork: (network: SorobanNetwork) => void;
-  method: SigningMethod | null;
-  sep7Uri: string | null;
-  isSep7ModalOpen: boolean;
   setSep7ModalOpen: (open: boolean) => void;
-  ledger: ReturnType<typeof import("@/hooks/use-ledger").useLedger>;
   connectLedger: () => Promise<void>;
 }
 
-const WalletContext = createContext<WalletContextType | undefined>(undefined);
+const WalletConnectionContext = createContext<WalletConnectionContextType | undefined>(undefined);
+const WalletActionsContext = createContext<WalletActionsContextType | undefined>(undefined);
 
 export interface WalletProviderProps {
   children: React.ReactNode;
@@ -120,7 +124,7 @@ export function WalletProvider({ children, expectedNetwork = "testnet" }: Wallet
   // On desktop, reflect real Freighter extension detection from useFreighter.
   const isInstalled = isMobileDevice() ? true : freighter.isInstalled;
 
-  const value: WalletContextType = {
+  const connectionValue = React.useMemo<WalletConnectionContextType>(() => ({
     publicKey: wallet.publicKey,
     isConnecting: wallet.isConnecting,
     isInstalled,
@@ -128,34 +132,77 @@ export function WalletProvider({ children, expectedNetwork = "testnet" }: Wallet
     network: detectedNetwork,
     networkMismatch,
     expectedNetwork: selectedNetwork,
+    method: wallet.method,
+    sep7Uri: wallet.sep7Uri,
+    isSep7ModalOpen: wallet.isSep7ModalOpen,
+    ledger: wallet.ledger,
+  }), [
+    wallet.publicKey,
+    wallet.isConnecting,
+    isInstalled,
+    ledgerError,
+    detectedNetwork,
+    networkMismatch,
+    selectedNetwork,
+    wallet.method,
+    wallet.sep7Uri,
+    wallet.isSep7ModalOpen,
+    wallet.ledger,
+  ]);
+
+  const actionsValue = React.useMemo<WalletActionsContextType>(() => ({
     connect: handleConnect,
     disconnect: handleDisconnect,
     signTx: handleSignTx,
     selectNetwork: handleSelectNetwork,
-    method: wallet.method,
-    sep7Uri: wallet.sep7Uri,
-    isSep7ModalOpen: wallet.isSep7ModalOpen,
     setSep7ModalOpen: wallet.setSep7ModalOpen,
-    ledger: wallet.ledger,
     connectLedger: handleConnectLedger,
-  };
+  }), [
+    handleConnect,
+    handleDisconnect,
+    handleSignTx,
+    handleSelectNetwork,
+    wallet.setSep7ModalOpen,
+    handleConnectLedger,
+  ]);
 
   return (
-    <WalletContext.Provider value={value}>
-      {children}
-      <Sep7Modal
-        isOpen={wallet.isSep7ModalOpen}
-        onOpenChange={wallet.setSep7ModalOpen}
-        uri={wallet.sep7Uri}
-      />
-    </WalletContext.Provider>
+    <WalletConnectionContext.Provider value={connectionValue}>
+      <WalletActionsContext.Provider value={actionsValue}>
+        {children}
+        <Sep7Modal
+          isOpen={wallet.isSep7ModalOpen}
+          onOpenChange={wallet.setSep7ModalOpen}
+          uri={wallet.sep7Uri}
+        />
+      </WalletActionsContext.Provider>
+    </WalletConnectionContext.Provider>
   );
 }
 
-export function useWallet(): WalletContextType {
-  const context = useContext(WalletContext);
+export type WalletContextType = WalletConnectionContextType & WalletActionsContextType;
+
+export function useWalletConnection(): WalletConnectionContextType {
+  const context = useContext(WalletConnectionContext);
   if (context === undefined) {
-    throw new Error("useWallet must be used within a WalletProvider");
+    throw new Error("useWalletConnection must be used within a WalletProvider");
   }
   return context;
+}
+
+export function useWalletActions(): WalletActionsContextType {
+  const context = useContext(WalletActionsContext);
+  if (context === undefined) {
+    throw new Error("useWalletActions must be used within a WalletProvider");
+  }
+  return context;
+}
+
+export function useWallet(): WalletContextType {
+  const connection = useContext(WalletConnectionContext);
+  const actions = useContext(WalletActionsContext);
+  if (connection === undefined || actions === undefined) {
+    throw new Error("useWallet must be used within a WalletProvider");
+  }
+  return React.useMemo(() => ({ ...connection, ...actions }), [connection, actions]);
 }

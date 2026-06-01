@@ -2,7 +2,8 @@
  * Validation utilities for UI state and transaction safety.
  */
 
-import { PaymentInstruction } from '@/lib/stellar/types';
+import { PaymentInstruction, BalancesMap } from '@/lib/stellar';
+import { validateBatchForSubmit } from '@/lib/stellar/validator';
 import { AssetAmount } from './aggregateAssets';
 
 export interface ValidationResult {
@@ -21,51 +22,17 @@ export function validateBatchSubmission(
   missingTrustlines: string[], // addresses missing trustlines for the asset
   selectedNetwork: 'testnet' | 'mainnet',
 ): ValidationResult {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-
-  if (payments.length === 0) {
-    errors.push('No payments to submit.');
-    return { valid: false, errors, warnings };
-  }
-
-  // Check network mismatch? (handled elsewhere)
-
-  // Balance check: aggregate required amounts per asset
-  const requiredByAsset = new Map<string, bigint>();
-  const toStroops = (amount: string): bigint => {
-    const parts = amount.split('.');
-    const integer = parts[0];
-    const fraction = parts[1] || '';
-    const padded = fraction.padEnd(7, '0').slice(0, 7);
-    return BigInt(integer) * 10_000_000n + BigInt(padded);
-  };
-
-  for (const payment of payments) {
-    const asset = payment.asset;
-    const amount = toStroops(payment.amount);
-    requiredByAsset.set(asset, (requiredByAsset.get(asset) || 0n) + amount);
-  }
-
-  // Compare with available balances
-  const balanceMap = new Map<string, bigint>();
+  const balancesMap: BalancesMap = {};
   for (const bal of balances) {
-    balanceMap.set(bal.asset, toStroops(bal.total));
+    balancesMap[bal.asset] = Number(bal.total);
   }
 
-  for (const [asset, required] of requiredByAsset.entries()) {
-    const available = balanceMap.get(asset) || 0n;
-    if (required > available) {
-      errors.push(`Insufficient balance for ${asset}. Required: ${required.toString()}, Available: ${available.toString()}`);
-    }
-  }
-
-  // Trustline warnings
-  if (missingTrustlines.length > 0) {
-    warnings.push(`${missingTrustlines.length} recipient(s) missing trustline. You can skip or convert to claimable balance.`);
-  }
-
-  return { valid: errors.length === 0, errors, warnings };
+  return validateBatchForSubmit(
+    payments,
+    balancesMap,
+    missingTrustlines,
+    selectedNetwork
+  );
 }
 
 /**

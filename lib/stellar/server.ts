@@ -29,7 +29,7 @@ import { getRecommendedFee } from "./fee-service";
 import { isBadSequenceError } from "./submit-errors";
 import { horizonUrl } from "./network-config";
 import Big from "big.js";
-import { parseStellarAmount, formatStellarAmount, parseAsset } from "./utils";
+import { parseStellarAmount, formatStellarAmount, parseAsset, truncateMemoToBytes } from "./utils";
 export { parseAsset };
 
 export class StellarService {
@@ -90,10 +90,10 @@ export class StellarService {
             const memoType = firstMemoPayment.memoType ?? 'text';
             memo = memoType === 'id'
               ? Memo.id(firstMemoPayment.memo)
-              : Memo.text(firstMemoPayment.memo);
+              : Memo.text(truncateMemoToBytes(firstMemoPayment.memo));
           } else {
             const memoId = `bp-${Date.now()}-${txCount}`;
-            memo = Memo.text(memoId.slice(0, 28));
+            memo = Memo.text(truncateMemoToBytes(memoId));
           }
 
           let builder = new TransactionBuilder(sourceAccount, {
@@ -115,6 +115,7 @@ export class StellarService {
                 status: "failed",
                 transactionHash: undefined,
                 error: validation.error,
+                rowIndex: payment.rowIndex,
               });
               continue;
             }
@@ -131,6 +132,7 @@ export class StellarService {
                 status: "failed",
                 transactionHash: undefined,
                 error: err instanceof Error ? err.message : "Invalid asset",
+                rowIndex: payment.rowIndex,
               });
               continue;
             }
@@ -152,6 +154,7 @@ export class StellarService {
               asset: payment.asset,
               status: "failed",
               transactionHash: undefined,
+              rowIndex: payment.rowIndex,
             });
           }
 

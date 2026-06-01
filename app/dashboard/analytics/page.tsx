@@ -9,6 +9,7 @@ import {
 } from "@/components/dashboard/PaymentVolumeChart";
 import { useWallet } from "@/contexts/WalletContext";
 import { useDashboardMetrics } from "@/hooks/use-dashboard-metrics";
+import { t } from "@/lib/i18n";
 
 type Range = "7d" | "30d" | "90d";
 
@@ -49,11 +50,10 @@ export default function AnalyticsPage() {
     <div className="space-y-8">
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold tracking-tight text-white">
-          Analytics
+          {t("analytics.title")}
         </h1>
         <p className="text-gray-400">
-          On-chain volume and success metrics for the connected wallet on the{" "}
-          {effectiveNetwork} network.
+          {t("analytics.description", { network: effectiveNetwork })}
         </p>
       </div>
 

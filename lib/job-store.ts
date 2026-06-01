@@ -124,6 +124,9 @@ function getDb(): Database.Database {
   if (!columns.some((column) => column.name === "version")) {
     _db.exec("ALTER TABLE jobs ADD COLUMN version INTEGER NOT NULL DEFAULT 1");
   }
+  if (!columns.some((column) => column.name === "signedTransactions")) {
+    _db.exec("ALTER TABLE jobs ADD COLUMN signedTransactions TEXT");
+  }
   _db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_publicKey_createdAt ON jobs (publicKey, createdAt DESC)");
 
   return _db;

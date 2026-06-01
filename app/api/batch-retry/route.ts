@@ -81,17 +81,32 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        // #397: Match failed results back to original payments using rowIndex
+        // (the only stable identifier when amounts repeat or the same address
+        // appears multiple times). Fall back to triple-key matching only when
+        // rowIndex is absent (legacy jobs that pre-date this fix).
+        const failedByRowIndex = new Set<number>();
         const failedPaymentsMap = new Map<string, number>();
+
         for (const result of failedResults) {
-            const key = JSON.stringify({
-                address: result.recipient,
-                amount: result.amount,
-                asset: result.asset,
-            });
-            failedPaymentsMap.set(key, (failedPaymentsMap.get(key) ?? 0) + 1);
+            if (result.rowIndex !== undefined) {
+                failedByRowIndex.add(result.rowIndex);
+            } else {
+                const key = JSON.stringify({
+                    address: result.recipient,
+                    amount: result.amount,
+                    asset: result.asset,
+                });
+                failedPaymentsMap.set(key, (failedPaymentsMap.get(key) ?? 0) + 1);
+            }
         }
 
         const failedPayments = job.payments.filter((payment) => {
+            // Prefer index-based match (exact, handles duplicates correctly)
+            if (payment.rowIndex !== undefined) {
+                return failedByRowIndex.has(payment.rowIndex);
+            }
+            // Legacy fallback: triple-key with decrementing counter
             const key = JSON.stringify({
                 address: payment.address,
                 amount: payment.amount,

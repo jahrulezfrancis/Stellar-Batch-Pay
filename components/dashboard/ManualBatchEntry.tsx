@@ -1,25 +1,30 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, Search, User } from "lucide-react";
+import { Plus, Trash2, User } from "lucide-react";
 import { useAddressBook } from "@/hooks/use-address-book";
 import type { PaymentInstruction } from "@/lib/stellar/types";
-import { 
-  Command, 
-  CommandEmpty, 
-  CommandGroup, 
-  CommandInput, 
-  CommandItem, 
-  CommandList 
+import {
+  canContinueManualBatch,
+  getValidManualPayments,
+  validateManualAddress,
+} from "@/lib/dashboard/manual-batch-validation";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface ManualBatchEntryProps {
   initialPayments?: PaymentInstruction[];
   onPaymentsChange: (payments: PaymentInstruction[]) => void;
+  onCanContinueChange?: (canContinue: boolean) => void;
 }
 
 export function ManualBatchEntry({ initialPayments, onPaymentsChange }: ManualBatchEntryProps) {
@@ -31,14 +36,13 @@ export function ManualBatchEntry({ initialPayments, onPaymentsChange }: ManualBa
   });
   const { contacts } = useAddressBook();
   const [openPopoverIndex, setOpenPopoverIndex] = useState<number | null>(null);
+  const [addressErrors, setAddressErrors] = useState<Record<number, string | undefined>>({});
 
   useEffect(() => {
-    // Filter out incomplete rows before notifying parent
-    const validPayments = rows.filter(
-      r => r.address && r.amount && r.asset
-    ) as PaymentInstruction[];
+    const validPayments = getValidManualPayments(rows);
     onPaymentsChange(validPayments);
-  }, [rows, onPaymentsChange]);
+    onCanContinueChange?.(canContinueManualBatch(rows));
+  }, [rows, onPaymentsChange, onCanContinueChange]);
 
   const addRow = () => {
     setRows([...rows, { address: "", amount: "", asset: "XLM" }]);
@@ -47,21 +51,43 @@ export function ManualBatchEntry({ initialPayments, onPaymentsChange }: ManualBa
   const removeRow = (index: number) => {
     if (rows.length === 1) {
       setRows([{ address: "", amount: "", asset: "XLM" }]);
+      setAddressErrors({});
       return;
     }
     const newRows = [...rows];
     newRows.splice(index, 1);
     setRows(newRows);
+    setAddressErrors((prev) => {
+      const next: Record<number, string | undefined> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const idx = Number(key);
+        if (idx < index) next[idx] = value;
+        else if (idx > index) next[idx - 1] = value;
+      });
+      return next;
+    });
   };
 
   const updateRow = (index: number, field: keyof PaymentInstruction, value: string) => {
     const newRows = [...rows];
     newRows[index] = { ...newRows[index], [field]: value };
     setRows(newRows);
+    if (field === "address") {
+      setAddressErrors((prev) => ({ ...prev, [index]: undefined }));
+    }
+  };
+
+  const handleAddressBlur = (index: number) => {
+    const address = rows[index]?.address ?? "";
+    setAddressErrors((prev) => ({
+      ...prev,
+      [index]: validateManualAddress(address),
+    }));
   };
 
   const selectContact = (index: number, address: string) => {
     updateRow(index, "address", address);
+    setAddressErrors((prev) => ({ ...prev, [index]: undefined }));
     setOpenPopoverIndex(null);
   };
 
@@ -81,23 +107,31 @@ export function ManualBatchEntry({ initialPayments, onPaymentsChange }: ManualBa
             {rows.map((row, idx) => (
               <tr key={idx} className="group">
                 <td className="p-2">
-                  <div className="relative flex items-center">
-                    <Popover 
-                      open={openPopoverIndex === idx} 
+                  <div className="relative flex flex-col gap-1">
+                    <Popover
+                      open={openPopoverIndex === idx}
                       onOpenChange={(open) => setOpenPopoverIndex(open ? idx : null)}
                     >
                       <PopoverTrigger asChild>
                         <div className="w-full relative">
                           <Input
+                            id={`manual-address-${idx}`}
                             placeholder="Stellar address (G...)"
                             className="bg-slate-950 border-slate-800 text-white font-mono pr-10"
                             value={row.address}
                             onChange={(e) => updateRow(idx, "address", e.target.value)}
+                            onBlur={() => handleAddressBlur(idx)}
+                            aria-invalid={addressErrors[idx] ? true : undefined}
+                            aria-describedby={
+                              addressErrors[idx] ? `manual-address-error-${idx}` : undefined
+                            }
                           />
                           <Button
+                            type="button"
                             variant="ghost"
                             size="icon"
                             className="absolute right-0 top-0 h-full text-slate-500 hover:text-emerald-500"
+                            aria-label="Choose from address book"
                           >
                             <User className="h-4 w-4" />
                           </Button>
@@ -130,6 +164,15 @@ export function ManualBatchEntry({ initialPayments, onPaymentsChange }: ManualBa
                         </Command>
                       </PopoverContent>
                     </Popover>
+                    {addressErrors[idx] && (
+                      <p
+                        id={`manual-address-error-${idx}`}
+                        className="text-xs text-red-400"
+                        role="alert"
+                      >
+                        {addressErrors[idx]}
+                      </p>
+                    )}
                   </div>
                 </td>
                 <td className="p-2">

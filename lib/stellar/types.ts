@@ -30,6 +30,7 @@ export interface PaymentInstruction {
   asset: string; // 'XLM' for native or 'CODE:ISSUER' for issued assets
   memo?: string;
   memoType?: MemoType; // defaults to 'text' when memo is provided
+  rowIndex?: number; // #397: original row index from upload, used for retry matching
 }
 
 export interface PaymentValidationRow {
@@ -63,6 +64,7 @@ export interface PaymentResult {
   status: "success" | "failed";
   transactionHash?: string;
   error?: string;
+  rowIndex?: number; // #397: original row index, persisted for retry matching
 }
 
 export interface BatchResult {
