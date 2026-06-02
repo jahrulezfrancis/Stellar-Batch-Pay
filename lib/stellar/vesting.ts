@@ -214,6 +214,10 @@ export async function buildRevokeTransaction(
   const contract = new Contract(contractId);
   const operation = contract.call(
     "revoke",
+    // The contract signature is `revoke(env, caller, recipient, index)` and the
+    // sender authorization is checked against `caller`. Omitting it produces an
+    // XDR that does not match the contract interface (#392).
+    new Address(publicKey).toScVal(),
     new Address(recipient).toScVal(),
     nativeToScVal(BigInt(index), { type: "u32" }),
   );
