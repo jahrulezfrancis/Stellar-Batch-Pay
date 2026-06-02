@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { StrKey } from "stellar-sdk";
 import { createJob, getJob } from "@/lib/job-store";
 import { processJobInBackground } from "@/lib/stellar/batch-worker";
 import { safeJsonResponse } from "@/lib/safe-json";
@@ -16,13 +17,29 @@ import { logger } from "@/lib/logger";
 export async function POST(request: NextRequest) {
     const requestId = request.headers.get("x-request-id");
     try {
-        const body = (await request.json()) as { jobId?: string };
+        const body = (await request.json()) as { jobId?: string; publicKey?: string };
         const jobId = body.jobId;
+        const publicKey = body.publicKey;
 
         if (!jobId || typeof jobId !== "string") {
             logger.warn({ requestId }, "Missing jobId in retry request");
             return NextResponse.json(
                 { error: "jobId is required" },
+                { status: 400 },
+            );
+        }
+
+        // The retry job is created under, and only pollable by, a wallet key
+        // (see GET /api/batch-status). Require a valid key up front so retries
+        // are never orphaned from the submitting account (#388).
+        if (
+            !publicKey ||
+            typeof publicKey !== "string" ||
+            !StrKey.isValidEd25519PublicKey(publicKey)
+        ) {
+            logger.warn({ requestId, jobId }, "Missing or invalid publicKey in retry request");
+            return NextResponse.json(
+                { error: "A valid publicKey is required" },
                 { status: 400 },
             );
         }
@@ -58,6 +75,15 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(
                 { error: "Batch job not found or not completed yet" },
                 { status: 404 },
+            );
+        }
+
+        // Only the wallet that submitted the original batch may retry it.
+        if (!job.publicKey || job.publicKey !== publicKey) {
+            logger.warn({ requestId, jobId }, "Retry requested by a non-owning wallet");
+            return NextResponse.json(
+                { error: "This batch job does not belong to the provided wallet" },
+                { status: 403 },
             );
         }
 
@@ -128,7 +154,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const retryJobId = createJob(failedPayments, job.network, job.publicKey || "");
+        const retryJobId = createJob(failedPayments, job.network, job.publicKey);
         void processJobInBackground(retryJobId, failedPayments, job.network, secretKey, undefined, requestId || undefined);
 
         logger.info({ requestId, jobId, retryJobId }, "Retry job successfully created and triggered");

@@ -99,7 +99,9 @@ export default function BatchDetailPage({
 
       const poll = async () => {
         try {
-          const r = await fetch(`/api/batch-status/${newJobId}`);
+          const r = await fetch(
+            `/api/batch-status/${newJobId}?publicKey=${encodeURIComponent(publicKey!)}`,
+          );
           if (!r.ok) throw new Error(`Status fetch failed (${r.status})`);
           const jb = (await r.json()) as JobStatusResponse;
           if (cancelled) return;
