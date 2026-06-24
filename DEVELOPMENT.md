@@ -217,7 +217,7 @@ Use the provided script to deploy to your local node:
 #### Deploy to Testnet
 1. **Configure Testnet**:
    ```bash
-   stellar network add --rpc-url https://soroban-testnet.stellar.org:443 --network-passphrase "Test SDF Test Network ; September 2015" testnet
+   stellar network add --rpc-url https://soroban-testnet.stellar.org:443 --network-passphrase "Test SDF Network ; September 2015" testnet
    ```
 2. **Generate/Add Testnet Account**:
    ```bash
@@ -307,6 +307,64 @@ const result = await service.submitBatch(payments);
    - Fund it with test lumens
    - Run against testnet
    - Verify transactions on https://stellar.expert/explorer/testnet
+
+## Real-time Batch Progress (SSE)
+
+Batch progress is streamed over Server-Sent Events from:
+
+```text
+GET /api/batch-events/:jobId?publicKey=<stellar-public-key>
+```
+
+The `publicKey` query parameter is required and must be a valid Stellar public
+key. It scopes the lookup to the submitting account so clients cannot subscribe
+to unrelated batch jobs.
+
+Each event is sent as a standard `data:` frame containing JSON shaped like:
+
+```json
+{
+  "jobId": "job_123",
+  "status": "processing",
+  "totalBatches": 3,
+  "completedBatches": 1,
+  "totalPayments": 250,
+  "network": "testnet",
+  "createdAt": "2026-06-24T12:00:00.000Z",
+  "updatedAt": "2026-06-24T12:00:03.000Z",
+  "result": null,
+  "error": null
+}
+```
+
+The stream sends an immediate update, then refreshes every second until the job
+reaches a terminal `completed` or `failed` state. The response uses
+`text/event-stream`, `Cache-Control: no-cache, no-transform`, and
+`X-Accel-Buffering: no` so reverse proxies do not buffer live progress frames.
+
+Browser clients should prefer `EventSource`:
+
+```typescript
+const params = new URLSearchParams({ publicKey });
+const events = new EventSource(`/api/batch-events/${jobId}?${params}`);
+
+events.onmessage = (event) => {
+  const job = JSON.parse(event.data);
+  if (job.status === "completed" || job.status === "failed") {
+    events.close();
+  }
+};
+```
+
+`hooks/use-batch-polling.ts` uses this SSE endpoint first. If `EventSource` is
+unavailable or the initial connection fails, it falls back to polling:
+
+```text
+GET /api/batch-status/:jobId?publicKey=<stellar-public-key>
+```
+
+The polling fallback starts at 2 seconds and backs off up to 30 seconds between
+attempts.
 
 ## Code Quality Guidelines
 
@@ -482,7 +540,7 @@ Batch is too large for single transaction:
 ## Future Improvements
 
 1. **Event Sourcing**: Store all actions for audit trail
-2. **WebSocket Support**: Real-time progress updates
+2. **Realtime Transport Hardening**: Add deployment-specific checks for SSE proxy buffering and timeout behavior
 3. **GraphQL API**: More flexible querying
 4. **Multi-language SDKs**: Python, Go, Rust versions
 5. **Scheduler**: Automated batch submissions at intervals
