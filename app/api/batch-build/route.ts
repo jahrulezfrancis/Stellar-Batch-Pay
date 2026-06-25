@@ -21,6 +21,7 @@ import { safeJsonResponse } from "@/lib/safe-json";
 import { horizonUrl } from "@/lib/stellar/network-config";
 
 import {
+  BatchMemoConflictError,
   createBatches,
   estimateBatchTransactionSize,
   STELLAR_TRANSACTION_SIZE_LIMIT_BYTES,
@@ -232,6 +233,13 @@ export async function POST(request: NextRequest) {
     }), rate);
   } catch (error) {
     console.error("Batch build error:", error);
+    if (error instanceof BatchMemoConflictError) {
+      return setRateLimitHeaders(safeJsonResponse(
+        { error: error.message },
+        { status: 400 },
+      ), rate);
+    }
+
     return setRateLimitHeaders(safeJsonResponse(
       {
         error:

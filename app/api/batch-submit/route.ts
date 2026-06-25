@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
 import { Keypair, StrKey } from "stellar-sdk";
 import { validatePaymentInstructions } from "@/lib/stellar";
+import { BatchMemoConflictError, createBatches } from "@/lib/stellar/batcher";
 import { MAX_UPLOAD_ROWS } from "@/lib/stellar/parser";
 import { safeJsonResponse } from "@/lib/safe-json";
 import { createIdempotentJob, IdempotencyConflictError } from "@/lib/job-store";
@@ -39,6 +40,8 @@ type BatchSubmitAcceptedResponse = {
   totalTransactions?: number;
   message: string;
 };
+
+const MAX_OPS = 100;
 
 function buildIdempotencyKey(body: RequestBody, headerKey: string | null): { idempotencyKey: string; requestHash: string } {
   const canonicalBody = canonicalizeIdempotencyPayload({
@@ -209,13 +212,27 @@ export async function POST(request: NextRequest) {
     const validation = validatePaymentInstructions(payments);
     if (!validation.valid) {
       const errors = Array.from(validation.errors.entries())
-        .map(([idx, err]) => `Row ${idx}: ${err}`)
+        .map(([idx, err]) => `Row ${idx + 1}: ${err}`)
         .slice(0, 5);
       logger.warn({ requestId, validationErrors: errors }, "Invalid payment instructions validation failure");
       return NextResponse.json(
         { error: `Invalid payment instructions: ${errors.join("; ")}` },
         { status: 400 },
       );
+    }
+
+    try {
+      await createBatches(payments, MAX_OPS, { network });
+    } catch (error) {
+      if (error instanceof BatchMemoConflictError) {
+        logger.warn({ requestId, error: error.message }, "Batch memo validation failure");
+        return NextResponse.json(
+          { error: error.message },
+          { status: 400 },
+        );
+      }
+
+      throw error;
     }
 
     const outcome = createIdempotentJob<BatchSubmitAcceptedResponse>({
