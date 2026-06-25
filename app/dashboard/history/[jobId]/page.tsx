@@ -1,10 +1,10 @@
 "use client";
 
-import { use, useState } from "react";
-import { useRouter } from "next/navigation";
+import { use, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useWallet } from "@/contexts/WalletContext";
+import { useNotifications } from "@/contexts/NotificationsContext";
 import { MotionSafe } from "@/components/motion-safe";
 import { DashboardWalletEmpty } from "@/components/dashboard/dashboard-wallet-empty";
 import { pageEnter } from "@/lib/motion-tokens";
@@ -26,6 +26,7 @@ import {
 interface JobStatusResponse {
   status: string;
   summary?: { successful?: number; failed?: number };
+  error?: string;
 }
 
 function explorerUrl(hash: string, network: "testnet" | "mainnet"): string {
@@ -62,12 +63,13 @@ export default function BatchDetailPage({
   params: Promise<{ jobId: string }>;
 }) {
   const { jobId } = use(params);
-  const router = useRouter();
   const { publicKey } = useWallet();
+  const { pushBatchNotification } = useNotifications();
   const [retrying, setRetrying] = useState(false);
   const [retryJobId, setRetryJobId] = useState<string | null>(null);
   const [retryPollError, setRetryPollError] = useState<string | null>(null);
   const [retryJobData, setRetryJobData] = useState<JobStatusResponse | null>(null);
+  const retryNotificationRef = useRef<string | null>(null);
 
   const { data, error, isLoading } = useQuery({
     queryKey: ["job", jobId, publicKey],
@@ -131,6 +133,29 @@ export default function BatchDetailPage({
   };
 
   const exportRows = data ? buildBatchExportRows(data) : [];
+
+  useEffect(() => {
+    if (!retryJobId || !retryJobData) {
+      return;
+    }
+
+    const terminalStatus = retryJobData.status;
+    if (terminalStatus !== "completed" && terminalStatus !== "failed") {
+      return;
+    }
+
+    if (retryNotificationRef.current === retryJobId) {
+      return;
+    }
+
+    pushBatchNotification({
+      jobId: retryJobId,
+      network: data?.network ?? "testnet",
+      status: terminalStatus,
+      error: retryJobData.error,
+    });
+    retryNotificationRef.current = retryJobId;
+  }, [data?.network, pushBatchNotification, retryJobData, retryJobId]);
 
   return (
     <MotionSafe {...pageEnter} className="space-y-6">

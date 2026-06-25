@@ -10,23 +10,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-
-// #360: filter state is owned by the parent page so the table query
-// and pagination can react to it. Previously each select had only an
-// uncontrolled `defaultValue` and nothing read the user's choices, so
-// the page looked filterable while the underlying API call ignored
-// every change.
-
-export type DateRangeValue = "7days" | "30days" | "90days" | "year"
-export type NetworkValue = "all" | "mainnet" | "testnet"
-export type StatusValue = "all" | "success" | "partial" | "failed"
-
-export interface HistoryFilterValues {
-  search: string
-  dateRange: DateRangeValue
-  network: NetworkValue
-  status: StatusValue
-}
+import {
+  DEFAULT_HISTORY_FILTERS,
+  type DateRangeValue,
+  type HistoryFilterValues,
+  type NetworkValue,
+  type StatusValue,
+} from "@/lib/history-filters"
 
 interface HistoryFilterBarProps {
   values: HistoryFilterValues
@@ -34,12 +24,8 @@ interface HistoryFilterBarProps {
   className?: string
 }
 
-export const DEFAULT_HISTORY_FILTERS: HistoryFilterValues = {
-  search: "",
-  dateRange: "7days",
-  network: "all",
-  status: "all",
-}
+export type { DateRangeValue, HistoryFilterValues, NetworkValue, StatusValue }
+export { DEFAULT_HISTORY_FILTERS }
 
 export function HistoryFilterBar({ values, onChange, className }: HistoryFilterBarProps) {
   const update = <K extends keyof HistoryFilterValues>(

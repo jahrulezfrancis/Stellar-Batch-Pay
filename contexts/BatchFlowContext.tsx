@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { useWallet } from "@/contexts/WalletContext";
+import { useNotifications } from "@/contexts/NotificationsContext";
 import { parsePaymentFile, analyzeParsedPayments } from "@/lib/stellar/parser";
 import { getBatchSummary } from "@/lib/stellar/summary";
 import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
@@ -126,6 +127,7 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { publicKey } = useWallet();
+  const { pushBatchNotification } = useNotifications();
 
   // Sync state to sessionStorage to prevent data loss on render crashes
   useEffect(() => {
@@ -197,10 +199,25 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
             setResult(data.result ?? null);
             setIsSubmitting(false);
             setStep(4);
+            pushBatchNotification({
+              jobId: data.jobId ?? id,
+              network: selectedNetwork,
+              status: "completed",
+              completedBatches: data.completedBatches ?? 0,
+              totalBatches: data.totalBatches ?? 0,
+            });
             toast.success("Batch submitted successfully");
           } else if (data.status === "failed") {
             stopPolling();
             setIsSubmitting(false);
+            pushBatchNotification({
+              jobId: data.jobId ?? id,
+              network: selectedNetwork,
+              status: "failed",
+              error: data.error ?? "Batch processing failed",
+              completedBatches: data.completedBatches ?? 0,
+              totalBatches: data.totalBatches ?? 0,
+            });
             toast.error(data.error ?? "Batch processing failed");
           }
         } catch {
@@ -208,7 +225,7 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
         }
       }, 2000);
     },
-    [stopPolling],
+    [pushBatchNotification, selectedNetwork, stopPolling],
   );
 
   useEffect(() => () => stopPolling(), [stopPolling]);

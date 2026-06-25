@@ -15,6 +15,7 @@ import { Horizon, TransactionBuilder, Networks } from "stellar-sdk";
 import { sumStellarAmounts, formatStellarAmount } from "./utils";
 import { horizonUrl } from "./network-config";
 import { logger } from "../logger";
+import { triggerWebhooksWithRetry } from "../webhooks";
 
 /**
  * Process a batch job in the background. This function must NOT be awaited

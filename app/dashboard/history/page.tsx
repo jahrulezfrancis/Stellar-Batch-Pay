@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { MotionSafe } from "@/components/motion-safe";
 import { DashboardWalletEmpty } from "@/components/dashboard/dashboard-wallet-empty";
 import { pageEnter } from "@/lib/motion-tokens";
 import { useWallet } from "@/contexts/WalletContext";
 import {
   HistoryFilterBar,
-  DEFAULT_HISTORY_FILTERS,
   type HistoryFilterValues,
 } from "@/components/dashboard/HistoryFilterBar";
 import { HistoryTable, type HistoricalBatch } from "@/components/dashboard/HistoryTable";
@@ -15,7 +15,10 @@ import { Pagination } from "@/components/dashboard/Pagination";
 import { MetricsGrid } from "@/components/dashboard/MetricsGrid";
 import { HistoryExportCenter } from "@/components/dashboard/HistoryExportCenter";
 import { Card, CardContent } from "@/components/ui/card";
-import { dateRangeToFrom } from "@/lib/history-filters";
+import {
+  dateRangeToFrom,
+  parseHistoryFilters,
+} from "@/lib/history-filters";
 import { t } from "@/lib/i18n";
 
 // #360: filter + pagination state is owned by the page so the
@@ -49,10 +52,20 @@ function computeMetrics(batches: HistoricalBatch[]) {
 
 export default function HistoryPage() {
   const { publicKey } = useWallet();
-  const [filters, setFilters] = useState<HistoryFilterValues>(DEFAULT_HISTORY_FILTERS);
+  const searchParams = useSearchParams();
+  const parsedFilters = useMemo(
+    () => parseHistoryFilters(searchParams),
+    [searchParams.toString()],
+  );
+  const [filters, setFilters] = useState<HistoryFilterValues>(parsedFilters);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loadedBatches, setLoadedBatches] = useState<HistoricalBatch[]>([]);
+
+  useEffect(() => {
+    setFilters(parsedFilters);
+    setPage(1);
+  }, [parsedFilters]);
 
   // Reset to page 1 whenever the filters change so a 5-page result
   // doesn't trap the user on page 3 of an empty filtered view.

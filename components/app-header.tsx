@@ -2,8 +2,8 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Search, Bell, ChevronRight, Menu } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import {
@@ -25,16 +25,29 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import { NotificationsPanel } from "@/components/dashboard/notifications-panel"
 
 export function AppHeader() {
   const pathname = usePathname()
+  const router = useRouter()
   const isDashboard = pathname === "/dashboard"
   const { expectedNetwork, selectNetwork } = useWallet()
   const [showMainnetWarning, setShowMainnetWarning] = React.useState(false)
   const [pendingNetwork, setPendingNetwork] = React.useState<"mainnet" | "testnet" | null>(null)
+  const [searchQuery, setSearchQuery] = React.useState("")
 
   // Simple breadcrumb logic based on path
   const pathsegments = pathname.split("/").filter(Boolean)
+
+  const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const query = searchQuery.trim()
+    if (!query) {
+      return
+    }
+
+    router.push(`/dashboard/history?search=${encodeURIComponent(query)}`)
+  }
 
   const handleNetworkSelect = (network: "mainnet" | "testnet") => {
     if (network === "mainnet") {
@@ -67,14 +80,22 @@ export function AppHeader() {
       <div className="flex flex-1 items-center gap-4">
         <SidebarTrigger className="md:hidden text-gray-400" />
         {isDashboard ? (
-          <div className="relative w-full max-w-md hidden sm:block">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
-            <Input
-              type="search"
-              placeholder="Search transactions..."
-              className="h-10 w-full border-[#1F2937] bg-[#1F293780]/30 pl-10 text-white placeholder-gray-500 focus:border-[#00D98B] focus:ring-[#00D98B]/20"
-            />
-          </div>
+          <form onSubmit={submitSearch} className="hidden w-full max-w-md sm:block">
+            <label htmlFor="dashboard-search" className="sr-only">
+              Search batch history
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+              <Input
+                id="dashboard-search"
+                type="search"
+                placeholder="Search batch history..."
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                className="h-10 w-full border-[#1F2937] bg-[#1F293780]/30 pl-10 text-white placeholder-gray-500 focus:border-[#00D98B] focus:ring-[#00D98B]/20"
+              />
+            </div>
+          </form>
         ) : (
           <Breadcrumb className="max-w-[200px] sm:max-w-none">
             <BreadcrumbList className="flex-nowrap overflow-hidden">
@@ -122,13 +143,7 @@ export function AppHeader() {
           Documentation
         </Link>
 
-        <button className="relative text-gray-400 hover:text-white transition-colors">
-          <Bell className="h-5 w-5" />
-          <span className="absolute -top-1 -right-1 flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00D98B] opacity-75"></span>
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-[#00D98B]"></span>
-          </span>
-        </button>
+        <NotificationsPanel />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

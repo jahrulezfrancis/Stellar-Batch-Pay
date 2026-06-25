@@ -4,10 +4,13 @@
  * #386: createJob persists signedTransactions to SQLite
  * #401: Fee cache is keyed by network URL
  * #399: Address book storage consolidation
+ * #607: history filter parsing
+ * #608: dashboard notification formatting
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { Horizon, Networks } from 'stellar-sdk';
+import { formatBatchNotification } from '../lib/dashboard/notifications';
 
 // Test #385: Networks passphrase in batch-worker
 describe('Issue #385: Networks passphrase in batch-worker', () => {
@@ -226,5 +229,39 @@ describe('Issue #399: Address book storage consolidation', () => {
 
     expect(map['GBBD47UZM2HN7D7XZIZVG4KVAUC36THN5BES6RMNNOK5TUNXAUCVMAKER']).toBe('Grace');
     expect(map['GBJCHUKZMTFSLOMNC7P4TS4VJJBTCYL3AEYZ7R37ZJNHYQM7MDEBC67']).toBe('Henry');
+  });
+});
+
+// Test #608: dashboard notification formatting
+describe('Issue #608: dashboard notification formatting', () => {
+  test('formats a successful batch notification for the panel', () => {
+    expect(
+      formatBatchNotification({
+        jobId: 'job-1234567890',
+        network: 'testnet',
+        status: 'completed',
+        completedBatches: 3,
+        totalBatches: 3,
+      }),
+    ).toEqual({
+      title: 'Batch job-1234… completed',
+      description: 'The testnet batch finished successfully (3/3).',
+      href: '/dashboard/history/job-1234567890',
+    });
+  });
+
+  test('formats a failed batch notification with the error message', () => {
+    expect(
+      formatBatchNotification({
+        jobId: 'job-abc',
+        network: 'mainnet',
+        status: 'failed',
+        error: 'Insufficient balance',
+      }),
+    ).toEqual({
+      title: 'Batch job-abc failed',
+      description: 'The mainnet batch failed: Insufficient balance',
+      href: '/dashboard/history/job-abc',
+    });
   });
 });

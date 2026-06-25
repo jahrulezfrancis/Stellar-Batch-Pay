@@ -66,10 +66,11 @@ The repository is organized into three main areas:
 
 ## Testing
 
-Run the JavaScript and TypeScript test suite:
+Run the main checks locally before opening a pull request:
 
 ```bash
 npm test
+npm run typecheck
 ```
 
 Run the production build:
@@ -91,6 +92,7 @@ cargo build --manifest-path contracts/Cargo.toml --target wasm32-unknown-unknown
 ```
 
 Before opening a pull request, make sure the relevant local checks complete successfully.
+The primary CI workflow now runs both Vitest and TypeScript typechecking, so `npm test` and `npm run typecheck` should both pass locally before you push.
 
 ## Pull Request Guidelines
 
