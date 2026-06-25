@@ -63,7 +63,7 @@ jobs:
         run: stellar contract build --manifest-path Cargo.toml
 
       - name: Upload batch-vesting WASM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: batch-vesting-wasm
           path: contracts/target/wasm32-unknown-unknown/release/batch_vesting.wasm
