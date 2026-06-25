@@ -223,6 +223,11 @@ The API stores batch jobs in SQLite via `better-sqlite3`. By default:
 | `JOB_STORE_PATH` | `./data/jobs.db` | Durable batch job state |
 | `RATE_LIMIT_DB_PATH` | `./data/rate-limit.db` | Per-key API rate limiting |
 
+SQLite is configured with:
+- **WAL mode** (Write-Ahead Logging)** for improved read concurrency.
+- **`busy_timeout = 5000ms`** to avoid immediate SQLITE_BUSY errors during concurrent writes.
+- **Retry with jitter** in `updateJob` to gracefully handle transient lock conflicts.
+
 Vercel serverless functions use a read-only filesystem except `/tmp`. Without
 explicit paths, job persistence can fail silently or reset on every cold start.
 

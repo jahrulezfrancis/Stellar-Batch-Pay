@@ -84,6 +84,7 @@ function getDb(): Database.Database {
   // WAL mode for better concurrent read performance
   _db.pragma("journal_mode = WAL");
   _db.pragma("foreign_keys = ON");
+  _db.pragma("busy_timeout = 5000");
 
   _db.exec(`
     CREATE TABLE IF NOT EXISTS jobs (
@@ -326,46 +327,69 @@ export function updateJob(
   patch: Partial<Omit<JobState, "jobId" | "createdAt">>,
 ): void {
   const db = getDb();
+  let attempts = 0;
+  const maxAttempts = 2;
+  
+  while (attempts < maxAttempts) {
+    try {
+      const run = db.transaction(() => {
+        const row = db.prepare("SELECT * FROM jobs WHERE jobId = ?").get(jobId) as
+          | JobRow
+          | undefined;
+        if (!row) return;
 
-  const run = db.transaction(() => {
-    const row = db.prepare("SELECT * FROM jobs WHERE jobId = ?").get(jobId) as
-      | JobRow
-      | undefined;
-    if (!row) return;
+        const now = new Date().toISOString();
+        const nextVersion = row.version + 1;
 
-    const now = new Date().toISOString();
-    const nextVersion = row.version + 1;
+        const result = db.prepare(
+          `
+          UPDATE jobs SET
+            status           = ?,
+            totalBatches     = ?,
+            completedBatches = ?,
+            result           = ?,
+            error            = ?,
+            updatedAt        = ?,
+            version          = ?
+          WHERE jobId = ? AND version = ?
+        `,
+        ).run(
+          patch.status ?? row.status,
+          patch.totalBatches ?? row.totalBatches,
+          patch.completedBatches ?? row.completedBatches,
+          patch.result !== undefined ? JSON.stringify(patch.result) : row.result,
+          patch.error ?? row.error,
+          now,
+          nextVersion,
+          jobId,
+          row.version,
+        );
 
-    const result = db.prepare(
-      `
-      UPDATE jobs SET
-        status           = ?,
-        totalBatches     = ?,
-        completedBatches = ?,
-        result           = ?,
-        error            = ?,
-        updatedAt        = ?,
-        version          = ?
-      WHERE jobId = ? AND version = ?
-    `,
-    ).run(
-      patch.status ?? row.status,
-      patch.totalBatches ?? row.totalBatches,
-      patch.completedBatches ?? row.completedBatches,
-      patch.result !== undefined ? JSON.stringify(patch.result) : row.result,
-      patch.error ?? row.error,
-      now,
-      nextVersion,
-      jobId,
-      row.version,
-    );
+        if (result.changes === 0) {
+          throw new Error(`Concurrent modification error: job ${jobId} was updated by another process.`);
+        }
+      });
 
-    if (result.changes === 0) {
-      throw new Error(`Concurrent modification error: job ${jobId} was updated by another process.`);
+      run();
+      return;
+    } catch (error: any) {
+      attempts++;
+      
+      // Check if it's an SQLITE_BUSY error
+      const isSqliteBusy = 
+        error.code === "SQLITE_BUSY" || 
+        (typeof error.message === "string" && error.message.includes("SQLITE_BUSY"));
+      
+      if (!isSqliteBusy || attempts >= maxAttempts) {
+        throw error;
+      }
+      
+      // Wait with jitter before retrying
+      const jitter = Math.random() * 100;
+      const waitMs = 100 + jitter;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
     }
-  });
-
-  run();
+  }
 }
 
 export interface JobQueryFilters {

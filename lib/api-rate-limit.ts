@@ -37,6 +37,7 @@ function getDb(): Database.Database {
   _db = new Database(RATE_LIMIT_DB_PATH);
   _db.pragma("journal_mode = WAL");
   _db.pragma("foreign_keys = ON");
+  _db.pragma("busy_timeout = 5000");
 
   _db.exec(`
     CREATE TABLE IF NOT EXISTS rate_buckets (
