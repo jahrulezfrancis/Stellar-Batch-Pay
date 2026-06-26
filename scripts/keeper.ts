@@ -1,6 +1,7 @@
 // scripts/keeper.ts
 import {
   rpc as SorobanRpc,
+  Horizon,
   Networks,
   Keypair,
   TransactionBuilder,
@@ -94,15 +95,18 @@ async function sendAlert(message: string) {
   }
 }
 
-async function checkBalance(server: SorobanRpc.Server, publicKey: string) {
+async function checkBalance(_server: SorobanRpc.Server, publicKey: string) {
   try {
-    const account = await server.getAccount(publicKey);
-    // SorobanRpc Account type doesn't expose balances in its TS definitions;
-    // cast to any to access the underlying Horizon balance data.
-    const nativeBalance = (account as any).balances?.find(
-      (b: any) => b.asset_type === "native",
+    const horizonServer = new Horizon.Server(
+      NETWORK_PASSPHRASE === Networks.PUBLIC
+        ? "https://horizon.stellar.org"
+        : "https://horizon-testnet.stellar.org",
     );
-    const balance = Number(nativeBalance?.balance || "0");
+    const account = await horizonServer.loadAccount(publicKey);
+    const nativeEntry = account.balances.find(
+      (b) => b.asset_type === "native",
+    );
+    const balance = Number(nativeEntry?.balance ?? "0");
 
     if (balance < LOW_BALANCE_THRESHOLD) {
       await sendAlert(

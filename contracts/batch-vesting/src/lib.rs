@@ -934,7 +934,7 @@ impl BatchVestingContract {
 
         env.events().publish(
             (Symbol::new(&env, "VestingRevoked"), recipient, sender),
-            (revoked_amount, pending_vested, token, vesting.memo),
+            (revoked_amount, pending_vested, token, vesting.memo.clone(), vesting.batch_id),
         );
     }
 
@@ -1141,7 +1141,7 @@ impl BatchVestingContract {
 
             env.events().publish(
                 (Symbol::new(&env, "VestingRevoked"), recipient.clone(), sender),
-                (revoked_amount, pending_vested, token, vesting.memo),
+                (revoked_amount, pending_vested, token, vesting.memo.clone(), vesting.batch_id),
             );
             results.set(k, true);
         }
@@ -1242,7 +1242,7 @@ impl BatchVestingContract {
 
             env.events().publish(
                 (Symbol::new(&env, "VestingRevoked"), recipient.clone(), sender),
-                (revoked_amount, pending_vested, token, vesting.memo),
+                (revoked_amount, pending_vested, token, vesting.memo.clone(), vesting.batch_id),
             );
         }
     }
