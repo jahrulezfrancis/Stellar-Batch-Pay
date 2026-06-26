@@ -76,21 +76,52 @@ export async function listBatches(): Promise<PersistedBatch[]> {
   });
 }
 
-/** Update the status of a single transaction within a batch. */
+// Serialize concurrent updateTxStatus calls per jobId so no two callers
+// run their read-modify-write at the same time for the same batch.
+const _updateQueues = new Map<string, Promise<void>>();
+
+/** Update the status of a single transaction within a batch.
+ *
+ * Performs the read-modify-write inside a single IndexedDB `readwrite`
+ * transaction so the snapshot and the write are atomic. A per-jobId promise
+ * queue ensures concurrent callers are serialized and no update is lost.
+ */
 export async function updateTxStatus(
   jobId: string,
   hash: string,
   status: TxStatus,
   confirmedAt?: string,
 ): Promise<void> {
-  const batch = await loadBatch(jobId);
-  if (!batch) return;
-  const txEntry = batch.transactions.find((t) => t.hash === hash);
-  if (txEntry) {
-    txEntry.status = status;
-    if (confirmedAt) txEntry.confirmedAt = confirmedAt;
-    await saveBatch(batch);
-  }
+  const prev = _updateQueues.get(jobId) ?? Promise.resolve();
+  const next = prev.then(() => _updateTxStatusAtomic(jobId, hash, status, confirmedAt));
+  _updateQueues.set(jobId, next.catch(() => {}));
+  return next;
+}
+
+async function _updateTxStatusAtomic(
+  jobId: string,
+  hash: string,
+  status: TxStatus,
+  confirmedAt?: string,
+): Promise<void> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    const getReq = store.get(jobId);
+    getReq.onsuccess = () => {
+      const batch = getReq.result as PersistedBatch | undefined;
+      if (!batch) { resolve(); return; }
+      const txEntry = batch.transactions.find((t) => t.hash === hash);
+      if (txEntry) {
+        txEntry.status = status;
+        if (confirmedAt) txEntry.confirmedAt = confirmedAt;
+        store.put(batch);
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 /** Delete a batch record (e.g. after successful full completion). */
