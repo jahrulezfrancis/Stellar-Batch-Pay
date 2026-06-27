@@ -255,6 +255,83 @@ describe('StellarService.submitBatch — validation failures are not marked succ
   });
 });
 
+describe('StellarService.submitSingleBatch — no double-batching (#503)', () => {
+  beforeEach(() => {
+    mockLoadAccount.mockClear();
+    mockSubmitTransaction.mockClear();
+    mockFetchBaseFee.mockClear();
+    mockLoadAccount.mockResolvedValue(new Account(SOURCE_KEYPAIR.publicKey(), '1'));
+    mockSubmitTransaction.mockResolvedValue({ hash: 'single-batch-hash' });
+  });
+
+  function manyPayments(count: number) {
+    return Array.from({ length: count }, () => ({
+      address: Keypair.random().publicKey(),
+      amount: '1.0000000',
+      asset: 'XLM',
+    }));
+  }
+
+  test('submits exactly ONE transaction even when given 101 payments', async () => {
+    const { StellarService } = await import('../lib/stellar/server');
+
+    const service = new StellarService({
+      secretKey: SOURCE_KEYPAIR.secret(),
+      network: 'testnet',
+      maxOperationsPerTransaction: 100,
+    });
+
+    const result = await service.submitSingleBatch(manyPayments(101));
+
+    // No internal re-batching: a single Horizon submission for the whole slice.
+    expect(mockSubmitTransaction).toHaveBeenCalledTimes(1);
+    expect(result.totalTransactions).toBe(1);
+    expect(result.summary.successful).toBe(101);
+    expect(mockSubmitTransaction.mock.calls[0][0].operations).toHaveLength(101);
+  });
+
+  test('worker flow: createBatches(101) + submitSingleBatch yields exactly 2 Horizon submissions', async () => {
+    const { StellarService } = await import('../lib/stellar/server');
+    const { createBatches } = await import('../lib/stellar/batcher');
+
+    const service = new StellarService({
+      secretKey: SOURCE_KEYPAIR.secret(),
+      network: 'testnet',
+      maxOperationsPerTransaction: 100,
+    });
+
+    const payments = manyPayments(101);
+    const batches = await createBatches(payments, 100, { network: 'testnet' });
+    expect(batches).toHaveLength(2);
+
+    mockSubmitTransaction.mockClear();
+    let txCount = 0;
+    for (const batch of batches) {
+      const res = await service.submitSingleBatch(batch.payments);
+      txCount += res.totalTransactions;
+    }
+
+    // Horizon submission count matches the up-front batch count (#503).
+    expect(mockSubmitTransaction).toHaveBeenCalledTimes(2);
+    expect(txCount).toBe(2);
+  });
+
+  test('submitBatch (wrapper) still batches internally: 101 payments → 2 submissions', async () => {
+    const { StellarService } = await import('../lib/stellar/server');
+
+    const service = new StellarService({
+      secretKey: SOURCE_KEYPAIR.secret(),
+      network: 'testnet',
+      maxOperationsPerTransaction: 100,
+    });
+
+    const result = await service.submitBatch(manyPayments(101));
+
+    expect(mockSubmitTransaction).toHaveBeenCalledTimes(2);
+    expect(result.totalTransactions).toBe(2);
+  });
+});
+
 describe('StellarService.submitBatch — tx_bad_seq retry with rebuild (#seq-retry)', () => {
   beforeEach(() => {
     mockLoadAccount.mockClear();

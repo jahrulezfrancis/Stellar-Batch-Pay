@@ -385,6 +385,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "cliff_time"
+                      },
+                      "val": {
+                        "u64": 0
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "end_time"
                       },
                       "val": {
@@ -510,7 +518,15 @@
                         "symbol": "batch_id"
                       },
                       "val": {
-                        "u32": 0
+                        "u32": 1
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "cliff_time"
+                      },
+                      "val": {
+                        "u64": 0
                       }
                     },
                     {
