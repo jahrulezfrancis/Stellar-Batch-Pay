@@ -77,6 +77,14 @@ Prefer spreading a preset onto `MotionSafe` instead of ad hoc `animate-in`
 utilities or raw `motion.div` on data-heavy routes. Utilitarian tables can
 omit entrance animation entirely.
 
+## Accessibility: bypass blocks
+
+Use a "Skip to main content" link as the first focusable control in layouts
+that introduce repeated navigation/UI chrome. The target landmark should be a
+stable `<main id="main-content">` on the rendered page shell (for example,
+dashboard and primary marketing/demo routes), so keyboard and assistive
+technology users can bypass sidebars/headers quickly (WCAG 2.4.1).
+
 ## Key Design Decisions
 
 ### 1. No ORM or Additional Abstraction

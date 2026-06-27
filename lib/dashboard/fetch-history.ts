@@ -18,6 +18,8 @@ export interface BatchHistoryResponse {
     totalPayments: number
     successRate: string
     totalVolume: string
+    failedJobs: number
+    failedPayments: number
   }
 }
 
@@ -52,6 +54,7 @@ export async function fetchHistory(params: {
   if (params.fromFilter) urlParams.set("from", params.fromFilter)
   if (params.sort) urlParams.set("sort", params.sort)
   if (params.order) urlParams.set("order", params.order)
+  urlParams.set("includeSummary", "true")
 
   const res = await fetch(`/api/batch-history?${urlParams.toString()}`)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)

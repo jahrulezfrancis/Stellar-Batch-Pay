@@ -11,13 +11,14 @@
  *   search    – substring match on jobId, payments JSON, or result JSON
  *   from      – ISO timestamp; include jobs with createdAt >= from
  *   to        – ISO timestamp; include jobs with createdAt <= to
+ *   includeSummary – when true, include aggregate metrics for the full filtered set
  *   sort      – column to sort by: createdAt (default), updatedAt, status
  *   order     – sort direction: desc (default) or asc
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { StrKey } from "stellar-sdk";
-import { getAllJobs, countJobs } from "@/lib/job-store";
+import { getAllJobs, countJobs, getBatchHistorySummary } from "@/lib/job-store";
 import { safeJsonResponse } from "@/lib/safe-json";
 import type { JobStatus, BatchJobNetwork } from "@/lib/stellar/types";
 
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
   const search     = searchParams.get("search")?.trim() || undefined;
   const from       = parseIsoTimestamp(searchParams.get("from"));
   const to         = parseIsoTimestamp(searchParams.get("to"));
+  const includeSummary = searchParams.get("includeSummary") === "true";
   const sort       = searchParams.get("sort") as "createdAt" | "updatedAt" | "status" | null;
   const order      = searchParams.get("order") as "asc" | "desc" | null;
 
@@ -64,26 +66,19 @@ export async function GET(request: NextRequest) {
       countJobs(filters),
     ];
 
-    // Compute aggregate metrics across all filtered results (not just current page)
-    let aggregateMetrics = null;
-    if (total > 0) {
-      const allJobs = getAllJobs({ limit: total, offset: 0, ...filters });
-      const totalBatches = allJobs.length;
-      const totalPayments = allJobs.reduce((s, j) => s + j.payments.length, 0);
-      const totalVolume = allJobs.reduce((s, j) => s + parseFloat(j.result?.totalAmount ?? "0"), 0);
-      const successful = allJobs.filter(
-        (j) => j.result?.summary?.failed === 0 && j.status === "completed"
-      ).length;
-      const completed = allJobs.filter((j) => j.status === "completed").length;
-      const successRate = completed > 0 ? ((successful / completed) * 100).toFixed(1) + "%" : "0.0%";
-
-      aggregateMetrics = {
-        totalBatches,
-        totalPayments,
-        successRate,
-        totalVolume: `${totalVolume.toFixed(2)} XLM`,
-      };
-    }
+    const summary = includeSummary
+      ? (() => {
+          const stats = getBatchHistorySummary(filters);
+          return {
+            totalJobs: stats.totalJobs,
+            totalPayments: stats.totalPayments,
+            totalAmount: `${stats.totalAmount.toFixed(2)} XLM`,
+            successRate: stats.successRate,
+            failedJobs: stats.failedJobs,
+            failedPayments: stats.failedPayments,
+          };
+        })()
+      : undefined;
 
     // Strip the full payments array from the list response to keep payloads small.
     // Callers that need the full payment list should use GET /api/batch-status/:jobId.
@@ -103,7 +98,18 @@ export async function GET(request: NextRequest) {
 
     return safeJsonResponse({
       items,
-      aggregateMetrics,
+      summary,
+      // Backward-compatible alias for legacy clients.
+      aggregateMetrics: summary
+        ? {
+            totalBatches: summary.totalJobs,
+            totalPayments: summary.totalPayments,
+            successRate: summary.successRate,
+            totalVolume: summary.totalAmount,
+            failedJobs: summary.failedJobs,
+            failedPayments: summary.failedPayments,
+          }
+        : undefined,
       pagination: {
         page,
         limit,
