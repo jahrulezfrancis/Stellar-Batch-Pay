@@ -23,7 +23,14 @@ interface HistoryTableProps {
   fromFilter?: string
   onPaginationLoad?: (pagination: { totalPages: number; total: number }) => void
   onRowsLoad?: (rows: HistoricalBatch[]) => void
-  onAggregateMetricsLoad?: (metrics: { totalBatches: number; totalPayments: number; successRate: string; totalVolume: string }) => void
+  onAggregateMetricsLoad?: (metrics: {
+    totalBatches: number;
+    totalPayments: number;
+    successRate: string;
+    totalVolume: string;
+    failedJobs: number;
+    failedPayments: number;
+  }) => void
 }
 
 function formatDate(iso: string): string {

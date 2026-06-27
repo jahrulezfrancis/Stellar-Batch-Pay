@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function HistoryLoading() {
   return (
-    <div className="container max-w-7xl mx-auto py-8 space-y-6" aria-label="Loading batch history">
+    <div className="mx-auto w-full max-w-[1200px] py-8 space-y-6" aria-label="Loading batch history">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-2">
           <Skeleton className="h-9 w-52" />

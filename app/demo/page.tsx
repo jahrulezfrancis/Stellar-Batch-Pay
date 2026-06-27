@@ -330,7 +330,7 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main id="main-content" className="min-h-screen bg-background text-foreground">
       <Navbar />
       <div className="max-w-2xl mx-auto px-4 py-8">
         <div className="mb-8">

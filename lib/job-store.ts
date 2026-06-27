@@ -426,6 +426,16 @@ export interface JobQueryFilters {
   order?: "asc" | "desc";
 }
 
+export interface BatchHistorySummary {
+  totalJobs: number;
+  totalPayments: number;
+  totalAmount: number;
+  successfulPayments: number;
+  failedPayments: number;
+  failedJobs: number;
+  successRate: string;
+}
+
 const SORT_COLUMNS = new Set(["createdAt", "updatedAt", "status"]);
 
 function buildJobQueryFilters(opts?: JobQueryFilters): {
@@ -540,6 +550,57 @@ export function countJobs(opts?: JobQueryFilters): number {
     .prepare(`SELECT COUNT(*) as cnt FROM jobs ${where}`)
     .get(...params) as { cnt: number };
   return row.cnt;
+}
+
+/**
+ * Return aggregate history metrics for the current filter set.
+ * Uses SQL-level aggregation so callers don't need to load all pages.
+ */
+export function getBatchHistorySummary(opts?: JobQueryFilters): BatchHistorySummary {
+  const db = getDb();
+  const { where, params } = buildJobQueryFilters(opts);
+  const row = db
+    .prepare(`
+      SELECT
+        COUNT(*) AS totalJobs,
+        COALESCE(SUM(json_array_length(payments)), 0) AS totalPayments,
+        COALESCE(SUM(CAST(json_extract(result, '$.totalAmount') AS REAL)), 0) AS totalAmount,
+        COALESCE(SUM(CAST(json_extract(result, '$.summary.successful') AS INTEGER)), 0) AS successfulPayments,
+        COALESCE(SUM(CAST(json_extract(result, '$.summary.failed') AS INTEGER)), 0) AS failedPayments,
+        COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failedJobs
+      FROM jobs
+      ${where}
+    `)
+    .get(...params) as {
+    totalJobs: number | null;
+    totalPayments: number | null;
+    totalAmount: number | null;
+    successfulPayments: number | null;
+    failedPayments: number | null;
+    failedJobs: number | null;
+  };
+
+  const totalJobs = row.totalJobs ?? 0;
+  const totalPayments = row.totalPayments ?? 0;
+  const totalAmount = row.totalAmount ?? 0;
+  const successfulPayments = row.successfulPayments ?? 0;
+  const failedPayments = row.failedPayments ?? 0;
+  const failedJobs = row.failedJobs ?? 0;
+  const totalProcessedPayments = successfulPayments + failedPayments;
+  const successRate =
+    totalProcessedPayments > 0
+      ? `${((successfulPayments / totalProcessedPayments) * 100).toFixed(1)}%`
+      : "0.0%";
+
+  return {
+    totalJobs,
+    totalPayments,
+    totalAmount,
+    successfulPayments,
+    failedPayments,
+    failedJobs,
+    successRate,
+  };
 }
 
 // ---------------------------------------------------------------------------
