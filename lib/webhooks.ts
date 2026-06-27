@@ -31,7 +31,8 @@ const METADATA_HOSTNAME_RE =
 
 /**
  * Decode all common IP obfuscation forms to a dotted-decimal string.
- * Handles decimal (2130706433), octal (0177.0.0.1), and hex (0x7f000001).
+ * Handles decimal (2130706433), hex (0x7f000001), and dotted-octal/hex
+ * (0177.0.0.1, 0x7f.0.0.1) notations.
  */
 function normalizePossibleIp(hostname: string): string {
   // Pure decimal integer encoding (e.g. 2130706433 → 127.0.0.1)
@@ -46,7 +47,7 @@ function normalizePossibleIp(hostname: string): string {
       ].join(".");
     }
   }
-  // Hex encoding (e.g. 0x7f000001)
+  // Monolithic hex encoding (e.g. 0x7f000001)
   if (/^0x[0-9a-f]+$/i.test(hostname)) {
     const n = parseInt(hostname, 16);
     if (n >= 0 && n <= 0xffffffff) {
@@ -56,6 +57,21 @@ function normalizePossibleIp(hostname: string): string {
         (n >>> 8) & 0xff,
         n & 0xff,
       ].join(".");
+    }
+  }
+  // Dotted notation where individual octets may be octal (leading zero) or hex
+  // (0x-prefixed). e.g. 0177.0.0.1 → 127.0.0.1, 0x7f.0.0.1 → 127.0.0.1
+  if (/^[\d.x]+$/i.test(hostname)) {
+    const parts = hostname.split(".");
+    if (parts.length === 4) {
+      const octets = parts.map((part) => {
+        if (/^0x[0-9a-f]+$/i.test(part)) return parseInt(part, 16);
+        if (/^0\d+$/.test(part)) return parseInt(part, 8); // leading-zero octal
+        return parseInt(part, 10);
+      });
+      if (octets.every((o) => Number.isFinite(o) && o >= 0 && o <= 255)) {
+        return octets.join(".");
+      }
     }
   }
   return hostname;

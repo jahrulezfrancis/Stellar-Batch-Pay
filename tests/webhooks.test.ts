@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { verifyWebhookSignature } from '../lib/webhooks';
+import { verifyWebhookSignature, validateWebhookUrl } from '../lib/webhooks';
 import crypto from 'crypto';
 
 describe('verifyWebhookSignature (#332)', () => {
@@ -103,5 +103,61 @@ describe('verifyWebhookSignature (#332)', () => {
       .join('');
     const result = verifyWebhookSignature(payload, secret, mixedCase);
     expect(result).toBe(true);
+  });
+});
+
+describe('validateWebhookUrl — IP obfuscation blocking (#540)', () => {
+  test('accepts a normal HTTPS public URL', () => {
+    expect(validateWebhookUrl('https://example.com/hook')).toBeNull();
+  });
+
+  test('rejects HTTP (non-HTTPS)', () => {
+    expect(validateWebhookUrl('http://example.com/hook')).not.toBeNull();
+  });
+
+  test('rejects standard localhost', () => {
+    expect(validateWebhookUrl('https://localhost/hook')).not.toBeNull();
+  });
+
+  test('rejects dotted-decimal loopback 127.0.0.1', () => {
+    expect(validateWebhookUrl('https://127.0.0.1/hook')).not.toBeNull();
+  });
+
+  test('rejects dotted-octal loopback 0177.0.0.1', () => {
+    // 0177 octal = 127 decimal → resolves to 127.0.0.1
+    expect(validateWebhookUrl('https://0177.0.0.1/hook')).not.toBeNull();
+  });
+
+  test('rejects dotted-hex loopback 0x7f.0.0.1', () => {
+    expect(validateWebhookUrl('https://0x7f.0.0.1/hook')).not.toBeNull();
+  });
+
+  test('rejects mixed octal/decimal dotted notation 0177.0.0.0x1', () => {
+    expect(validateWebhookUrl('https://0177.0.0.0x1/hook')).not.toBeNull();
+  });
+
+  test('rejects monolithic decimal integer 2130706433 (127.0.0.1)', () => {
+    expect(validateWebhookUrl('https://2130706433/hook')).not.toBeNull();
+  });
+
+  test('rejects monolithic hex 0x7f000001 (127.0.0.1)', () => {
+    expect(validateWebhookUrl('https://0x7f000001/hook')).not.toBeNull();
+  });
+
+  test('rejects RFC1918 10.x.x.x', () => {
+    expect(validateWebhookUrl('https://10.0.0.1/hook')).not.toBeNull();
+  });
+
+  test('rejects RFC1918 192.168.x.x', () => {
+    expect(validateWebhookUrl('https://192.168.1.1/hook')).not.toBeNull();
+  });
+
+  test('rejects link-local 169.254.169.254 (cloud metadata)', () => {
+    expect(validateWebhookUrl('https://169.254.169.254/hook')).not.toBeNull();
+  });
+
+  test('rejects dotted-octal 192.168 range (0300.0250.x.x)', () => {
+    // 0300 = 192, 0250 = 168 in octal
+    expect(validateWebhookUrl('https://0300.0250.1.1/hook')).not.toBeNull();
   });
 });
