@@ -282,6 +282,22 @@ The contract uses Soroban's standard upgradeability pattern. Upgrades are gated 
 - `UpgradeProposed(new_wasm_hash, execute_at)`
 - `UpgradeExecuted(new_wasm_hash)`
 
+## React Query Provider
+
+A single `QueryClientProvider` wraps the entire application tree in the root
+`app/layout.tsx` via the `QueryProvider` component (`components/query-provider.tsx`).
+No other layout or page component should nest a second `QueryClientProvider` or
+create a separate `QueryClient` instance — nested providers create independent
+caches, breaking `invalidateQueries` across the app and causing duplicate network
+fetches for the same query key.
+
+- Default `staleTime` is 30 000 ms, retry count is 1, and `refetchOnWindowFocus`
+  is disabled (see `components/query-provider.tsx`).
+- Dashboard routes (wrapped by `DashboardLayout` in `components/dashboard-layout.tsx`)
+  rely on the root provider; do not reintroduce a second provider there.
+- All `useQuery`, `useMutation`, and `invalidateQueries` calls share the same
+  `QueryClient` instance and cache namespace.
+
 ## Testing Strategy
 
 ### Unit Tests

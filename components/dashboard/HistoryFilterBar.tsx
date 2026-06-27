@@ -52,12 +52,12 @@ export function HistoryFilterBar({ values, onChange, className }: HistoryFilterB
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-400">Date Range</label>
+        <label className="text-sm font-medium text-gray-400" htmlFor="history-date-range">Date Range</label>
         <Select
           value={values.dateRange}
           onValueChange={(v) => update("dateRange", v as DateRangeValue)}
         >
-          <SelectTrigger className="bg-[#121827] border-[#1F2937] text-white focus:ring-[#00D98B]/20">
+          <SelectTrigger id="history-date-range" className="bg-[#121827] border-[#1F2937] text-white focus:ring-[#00D98B]/20">
             <SelectValue placeholder="Select Range" />
           </SelectTrigger>
           <SelectContent className="bg-[#121827] border-[#1F2937] text-white">
@@ -70,12 +70,12 @@ export function HistoryFilterBar({ values, onChange, className }: HistoryFilterB
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-400">Network</label>
+        <label className="text-sm font-medium text-gray-400" htmlFor="history-network">Network</label>
         <Select
           value={values.network}
           onValueChange={(v) => update("network", v as NetworkValue)}
         >
-          <SelectTrigger className="bg-[#121827] border-[#1F2937] text-white focus:ring-[#00D98B]/20">
+          <SelectTrigger id="history-network" className="bg-[#121827] border-[#1F2937] text-white focus:ring-[#00D98B]/20">
             <SelectValue placeholder="All Networks" />
           </SelectTrigger>
           <SelectContent className="bg-[#121827] border-[#1F2937] text-white">
@@ -87,12 +87,12 @@ export function HistoryFilterBar({ values, onChange, className }: HistoryFilterB
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-400">Status</label>
+        <label className="text-sm font-medium text-gray-400" htmlFor="history-status">Status</label>
         <Select
           value={values.status}
           onValueChange={(v) => update("status", v as StatusValue)}
         >
-          <SelectTrigger className="bg-[#121827] border-[#1F2937] text-white focus:ring-[#00D98B]/20">
+          <SelectTrigger id="history-status" className="bg-[#121827] border-[#1F2937] text-white focus:ring-[#00D98B]/20">
             <SelectValue placeholder="All Status" />
           </SelectTrigger>
           <SelectContent className="bg-[#121827] border-[#1F2937] text-white">

@@ -656,7 +656,7 @@ impl BatchVestingContract {
             for j in 0..token_transfers.len() {
                 let (t, amt) = token_transfers.get(j).unwrap();
                 if t == token {
-                    token_transfers.set(j, (t.clone(), amt + amount));
+                    token_transfers.set(j, (t.clone(), amt.checked_add(amount).unwrap_or_else(|| soroban_sdk::panic_with_error!(&env, VestingError::Overflow))));
                     found = true;
                     break;
                 }
