@@ -99,9 +99,14 @@ export default function BatchDetailPage({
 
     setRetrying(true);
     try {
+      // Generate idempotency key to prevent duplicate retry jobs on double-click (#550)
+      const idempotencyKey = crypto.randomUUID();
       const res = await fetch("/api/batch-retry", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify({ jobId, publicKey }),
       });
 

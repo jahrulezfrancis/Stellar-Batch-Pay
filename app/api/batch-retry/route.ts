@@ -9,10 +9,19 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { StrKey } from "stellar-sdk";
-import { createJob, getJob } from "@/lib/job-store";
+import { createIdempotentJob, getJob, IdempotencyConflictError } from "@/lib/job-store";
 import { processJobInBackground } from "@/lib/stellar/batch-worker";
 import { safeJsonResponse } from "@/lib/safe-json";
 import { logger } from "@/lib/logger";
+import { createHash } from "crypto";
+
+/**
+ * Generate a SHA-256 hash of the request body for idempotency checking.
+ * This ensures that the same idempotency key with a different body is rejected.
+ */
+function hashRequestBody(body: { jobId: string; publicKey: string }): string {
+    return createHash("sha256").update(JSON.stringify(body)).digest("hex");
+}
 
 export async function POST(request: NextRequest) {
     const requestId = request.headers.get("x-request-id");
@@ -20,6 +29,10 @@ export async function POST(request: NextRequest) {
         const body = (await request.json()) as { jobId?: string; publicKey?: string };
         const jobId = body.jobId;
         const publicKey = body.publicKey;
+
+        // Extract or derive idempotency key for duplicate retry protection (#550)
+        const idempotencyKey = request.headers.get("Idempotency-Key") 
+            ?? createHash("sha256").update(`${jobId}-${publicKey}`).digest("hex");
 
         if (!jobId || typeof jobId !== "string") {
             logger.warn({ requestId }, "Missing jobId in retry request");
@@ -161,21 +174,49 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const retryJobId = createJob(failedPayments, job.network, job.publicKey);
-        void processJobInBackground(retryJobId, failedPayments, job.network, secretKey, undefined, requestId || undefined);
+        // Generate request hash for idempotency conflict detection
+        const requestHash = hashRequestBody({ jobId, publicKey });
 
-        logger.info({ requestId, jobId, retryJobId }, "Retry job successfully created and triggered");
-
-        return safeJsonResponse(
-            {
+        // Use createIdempotentJob to prevent duplicate retry jobs (#550)
+        const idempotentResult = createIdempotentJob({
+            idempotencyKey,
+            requestHash,
+            payments: failedPayments,
+            network: job.network,
+            publicKey: job.publicKey,
+            buildResponseBody: (retryJobId) => ({
                 jobId: retryJobId,
                 originalJobId: job.jobId,
                 failedPayments: failedPayments.length,
                 message: "Retry job queued. Poll /api/batch-status/" + retryJobId + " for progress.",
-            },
-            { status: 202 },
-        );
+            }),
+        });
+
+        // Only trigger background processing if this is not a replayed request
+        if (!idempotentResult.replayed) {
+            void processJobInBackground(
+                idempotentResult.jobId,
+                failedPayments,
+                job.network,
+                secretKey,
+                undefined,
+                requestId || undefined,
+            );
+            logger.info({ requestId, jobId, retryJobId: idempotentResult.jobId }, "Retry job successfully created and triggered");
+        } else {
+            logger.info({ requestId, jobId, retryJobId: idempotentResult.jobId }, "Retry request replayed - returning existing job");
+        }
+
+        return safeJsonResponse(idempotentResult.responseBody, { status: 202 });
     } catch (error: unknown) {
+        if (error instanceof IdempotencyConflictError) {
+            logger.warn({ requestId, jobId }, "Idempotency key reused with different body");
+            return NextResponse.json(
+                { error: "Idempotency key already exists for a different request body" },
+                { status: 409 },
+            );
+        }
+
         logger.error({ requestId }, "Batch retry error", error);
         return safeJsonResponse(
             {

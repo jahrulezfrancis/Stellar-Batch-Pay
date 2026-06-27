@@ -46,10 +46,10 @@ const completedResult: BatchResult = {
     summary: { successful: 1, failed: 1 },
 };
 
-function makeRequest(body: Record<string, unknown>) {
+function makeRequest(body: Record<string, unknown>, headers?: Record<string, string>) {
     return new Request("http://localhost/api/batch-retry", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...headers },
         body: JSON.stringify(body),
     });
 }
@@ -98,5 +98,65 @@ describe("POST /api/batch-retry (#388)", () => {
         expect(retryJob?.publicKey).toBe(OWNER);
         expect(retryJob?.payments).toHaveLength(1);
         expect(retryJob?.payments[0].address).toBe(RECIPIENT_BAD);
+    });
+
+    test("duplicate retry requests with same idempotency key return same jobId (#550)", async () => {
+        const idempotencyKey = "test-idempotency-key-123";
+        
+        const res1 = await POST(makeRequest(
+            { jobId, publicKey: OWNER },
+            { "Idempotency-Key": idempotencyKey }
+        ) as never);
+        expect(res1.status).toBe(202);
+        const body1 = await res1.json();
+        const firstJobId = body1.jobId;
+        expect(firstJobId).toBeDefined();
+
+        // Second request with same idempotency key should return same job
+        const res2 = await POST(makeRequest(
+            { jobId, publicKey: OWNER },
+            { "Idempotency-Key": idempotencyKey }
+        ) as never);
+        expect(res2.status).toBe(202);
+        const body2 = await res2.json();
+        expect(body2.jobId).toBe(firstJobId);
+        expect(body2.failedPayments).toBe(1);
+
+        // Only one job should exist in the store
+        const allJobs = getJob(firstJobId, OWNER);
+        expect(allJobs).toBeDefined();
+    });
+
+    test("idempotency key reused with different body returns 409 (#550)", async () => {
+        const idempotencyKey = "test-idempotency-key-conflict";
+        
+        const res1 = await POST(makeRequest(
+            { jobId, publicKey: OWNER },
+            { "Idempotency-Key": idempotencyKey }
+        ) as never);
+        expect(res1.status).toBe(202);
+
+        // Second request with same key but different publicKey should conflict
+        const res2 = await POST(makeRequest(
+            { jobId, publicKey: OTHER },
+            { "Idempotency-Key": idempotencyKey }
+        ) as never);
+        expect(res2.status).toBe(409);
+        const body2 = await res2.json();
+        expect(body2.error).toMatch(/idempotency/i);
+    });
+
+    test("derived idempotency key prevents duplicate retries without header (#550)", async () => {
+        // When no Idempotency-Key header is provided, the endpoint derives one from jobId+publicKey
+        const res1 = await POST(makeRequest({ jobId, publicKey: OWNER }) as never);
+        expect(res1.status).toBe(202);
+        const body1 = await res1.json();
+        const firstJobId = body1.jobId;
+
+        // Second request without header should still be idempotent due to derived key
+        const res2 = await POST(makeRequest({ jobId, publicKey: OWNER }) as never);
+        expect(res2.status).toBe(202);
+        const body2 = await res2.json();
+        expect(body2.jobId).toBe(firstJobId);
     });
 });
