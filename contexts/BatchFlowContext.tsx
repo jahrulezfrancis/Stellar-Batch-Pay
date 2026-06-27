@@ -1,9 +1,11 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useWallet } from "@/contexts/WalletContext";
 import { useNotifications } from "@/contexts/NotificationsContext";
+import { BATCH_HISTORY_QUERY_KEY } from "@/lib/dashboard/fetch-history";
 import { parsePaymentFile, analyzeParsedPayments } from "@/lib/stellar/parser";
 import { getBatchSummary } from "@/lib/stellar/summary";
 import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
@@ -126,6 +128,7 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
   const [batchMetaLoading, setBatchMetaLoading] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const queryClient = useQueryClient();
   const { publicKey } = useWallet();
   const { pushBatchNotification } = useNotifications();
 
@@ -199,6 +202,9 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
             setResult(data.result ?? null);
             setIsSubmitting(false);
             setStep(4);
+            void queryClient.invalidateQueries({
+              queryKey: [BATCH_HISTORY_QUERY_KEY, ownerPublicKey],
+            });
             pushBatchNotification({
               jobId: data.jobId ?? id,
               network: selectedNetwork,
@@ -225,7 +231,7 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
         }
       }, 2000);
     },
-    [pushBatchNotification, selectedNetwork, stopPolling],
+    [pushBatchNotification, queryClient, selectedNetwork, stopPolling],
   );
 
   useEffect(() => () => stopPolling(), [stopPolling]);
