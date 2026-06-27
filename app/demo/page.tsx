@@ -356,7 +356,15 @@ export default function Home() {
           </div>
         )}
 
-        <BatchErrorBoundary storageKey="demo_batch_payments" onRestore={handleRestore}>
+        <BatchErrorBoundary
+          storageKey="demo_batch_payments"
+          onRestore={handleRestore}
+          validate={(parsed) =>
+            Array.isArray(parsed) &&
+            parsed.length > 0 &&
+            parsed.every((p) => p !== null && typeof p === "object")
+          }
+        >
           {/* ── Upload ────────────────────────────────────────────────── */}
           {state === "upload" && (
             <div className="space-y-6">

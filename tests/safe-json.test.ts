@@ -3,6 +3,7 @@
  */
 
 import { describe, test, expect } from "vitest";
+import { safeJsonParse } from "../lib/safe-json";
 
 // Test the BigInt replacer logic directly since safeJsonResponse depends on Next.js
 function bigIntReplacer(_key: string, value: unknown): unknown {
@@ -71,5 +72,27 @@ describe("BigInt-safe JSON serialization", () => {
   test("regular JSON.stringify throws on BigInt", () => {
     const data = { value: BigInt(123) };
     expect(() => JSON.stringify(data)).toThrow(TypeError);
+  });
+});
+
+describe("safeJsonParse (#516)", () => {
+  test("parses valid JSON into an ok result", () => {
+    const result = safeJsonParse<{ a: number }>('{"a":1}');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual({ a: 1 });
+  });
+
+  test("does not throw on corrupt JSON and returns an error result", () => {
+    let result!: ReturnType<typeof safeJsonParse>;
+    expect(() => {
+      result = safeJsonParse("{broken");
+    }).not.toThrow();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBeInstanceOf(Error);
+  });
+
+  test("returns an error result for null / undefined input", () => {
+    expect(safeJsonParse(null).ok).toBe(false);
+    expect(safeJsonParse(undefined).ok).toBe(false);
   });
 });
