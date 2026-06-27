@@ -10,6 +10,7 @@
 import { StellarService } from "./server";
 import { updateJob, getJob, incrementCompletedBatches } from "../job-store";
 import { createBatches } from "./batcher";
+import { getXdrSourceAccount } from "./xdr-source";
 import type {
   PaymentInstruction,
   BatchResult,
@@ -83,6 +84,20 @@ export async function processJobInBackground(
           : [];
 
         try {
+          // #504: Defense-in-depth — never submit an envelope whose source
+          // account differs from the wallet that owns this job. The submit
+          // route enforces this up-front, but a job recovered from storage is
+          // re-checked here. Skipped when the source can't be determined (older
+          // jobs without a publicKey, or unparseable XDR handled below).
+          if (job.publicKey) {
+            const source = getXdrSourceAccount(xdr, network);
+            if (source !== undefined && source !== job.publicKey) {
+              throw new Error(
+                `Transaction source account ${source} does not match job publicKey ${job.publicKey}`,
+              );
+            }
+          }
+
           const tx = TransactionBuilder.fromXDR(xdr, network === 'testnet' ? Networks.TESTNET : Networks.PUBLIC);
           const result = await server.submitTransaction(tx);
 
@@ -208,8 +223,11 @@ export async function processJobInBackground(
       const batch = batches[i];
 
       try {
-        // Submit this single batch of ≤100 payments as one Stellar transaction
-        const batchResult = await service.submitBatch(batch.payments);
+        // Submit this pre-computed batch as exactly one Stellar transaction.
+        // Must NOT call submitBatch here — that would re-run createBatches and
+        // double-batch the payments, inflating fees and desyncing progress with
+        // totalBatches (#503).
+        const batchResult = await service.submitSingleBatch(batch.payments);
 
         let txHash: string | undefined;
         for (const r of batchResult.results) {

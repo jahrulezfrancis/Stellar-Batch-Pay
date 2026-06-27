@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Symbol, Vec,
+    contract, contractimpl, contracttype, token, Address, BytesN, Env, Map, String, Symbol, Vec,
 };
 
 const MAX_BATCH_SIZE: u32 = 100;
@@ -80,8 +80,8 @@ pub struct FeeConfig {
     pub fee_per_recipient: i128,
     /// Address that receives collected fees (treasury or admin wallet).
     pub treasury: Address,
-    /// #543: fee_asset removed from FeeConfig - now stored in contract Config
-    /// to prevent admin from changing the fee token arbitrarily.
+    // #543: fee_asset removed from FeeConfig - now stored in contract Config
+    // to prevent admin from changing the fee token arbitrarily.
 }
 
 /// Legacy storage type used only during migration from the old Vec<VestingData> layout.
@@ -1044,11 +1044,20 @@ impl BatchVestingContract {
     /// swap-with-last removal strategy does not corrupt the indices of
     /// subsequent requests targeting the same recipient (#198).
     ///
-    /// #308: The previous O(N²) insertion sort is replaced with an O(N)
-    /// validation pass.  Sorting is pushed to the caller (off-chain), which
-    /// keeps on-chain instruction counts well within Soroban's per-transaction
-    /// resource limits for batches up to MAX_BATCH_SIZE (100).  Unsorted input
-    /// is rejected immediately with VestingError::InvalidInput.
+    /// #308: The previous O(N²) insertion sort is replaced with a validation
+    /// pass.  Sorting is pushed to the caller (off-chain), which keeps on-chain
+    /// instruction counts well within Soroban's per-transaction resource limits
+    /// for batches up to MAX_BATCH_SIZE (100).  Unsorted input is rejected
+    /// immediately with VestingError::InvalidInput.
+    ///
+    /// #505: The ordering check enforces strictly descending `index` *globally*
+    /// per recipient, not merely between adjacent requests.  Comparing only
+    /// consecutive entries allowed interleaved same-recipient requests
+    /// (separated by another recipient) to pass validation while still being
+    /// out of order — e.g. `(R,2), (Other,5), (R,0), (R,1)` — which corrupts
+    /// indices once swap-with-last removal runs.  We track the last index seen
+    /// per recipient and reject any request whose index is not strictly smaller
+    /// than the previous one for that same recipient.
     pub fn batch_revoke(env: Env, caller: Address, requests: Vec<RevokeRequest>) -> Vec<bool> {
         Self::panic_if_operation_paused(&env, PAUSE_REVOKE);
         caller.require_auth();
@@ -1059,19 +1068,20 @@ impl BatchVestingContract {
             return Vec::new(&env);
         }
 
-        // O(N) validation: each request's index must be strictly less than the
-        // previous one (descending order).  We only enforce ordering between
-        // consecutive requests for the same recipient; different recipients are
-        // independent and may appear in any relative order.
+        // Validate strictly-descending index order per recipient across the
+        // ENTIRE request vector (not just adjacent pairs).  `last_index` maps a
+        // recipient to the index of its most recent request seen so far; any new
+        // request for that recipient must have a strictly smaller index. (#505)
         if n > 1 {
-            for i in 1..n {
-                let prev = requests.get(i - 1).unwrap();
+            let mut last_index: Map<Address, u32> = Map::new(&env);
+            for i in 0..n {
                 let curr = requests.get(i).unwrap();
-                // Only compare when the recipient is the same — different
-                // recipients have independent index spaces.
-                if prev.recipient == curr.recipient && prev.index <= curr.index {
-                    soroban_sdk::panic_with_error!(&env, VestingError::InvalidInput);
+                if let Some(prev_index) = last_index.get(curr.recipient.clone()) {
+                    if curr.index >= prev_index {
+                        soroban_sdk::panic_with_error!(&env, VestingError::InvalidInput);
+                    }
                 }
+                last_index.set(curr.recipient.clone(), curr.index);
             }
         }
 

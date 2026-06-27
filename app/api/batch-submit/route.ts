@@ -7,6 +7,20 @@
  *
  * Returns 202 Accepted immediately with a jobId.
  * Frontend polls /api/batch-status/:jobId for progress.
+ *
+ * Idempotency semantics (#502)
+ * ────────────────────────────
+ * Duplicate submissions are deduplicated by Idempotency-Key (or a request-body
+ * hash) via createIdempotentJob. A replay does NOT just return the cached
+ * response — it also *resumes processing* when the original job is stranded.
+ *
+ * If the original worker never ran (the fire-and-forget promise was lost on a
+ * server restart) or crashed mid-job, the job is left "queued"/"processing"
+ * with a stale updatedAt. On replay we reload the job and, when it is stranded,
+ * re-invoke processJobInBackground so the batch actually executes. Terminal
+ * jobs (completed/failed) are never re-processed, so a replay can never trigger
+ * a double payout. The 202 body reports `replayed` and `workerRestarted` so the
+ * client can tell whether processing was resumed.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -16,9 +30,18 @@ import { validatePaymentInstructions } from "@/lib/stellar";
 import { BatchMemoConflictError, createBatches } from "@/lib/stellar/batcher";
 import { MAX_UPLOAD_ROWS } from "@/lib/stellar/parser";
 import { safeJsonResponse } from "@/lib/safe-json";
-import { createIdempotentJob, IdempotencyConflictError } from "@/lib/job-store";
+import { createIdempotentJob, IdempotencyConflictError, getJob } from "@/lib/job-store";
 import { processJobInBackground } from "@/lib/stellar/batch-worker";
-import type { PaymentInstruction, BatchJobNetwork } from "@/lib/stellar/types";
+import { processJobInBackground } from "@/lib/stellar/batch-worker";
+import { findSourceMismatch } from "@/lib/stellar/xdr-source";
+import type {
+  JobState,
+  PaymentInstruction,
+  BatchJobNetwork,
+} from "@/lib/stellar/types";
+import { applyRateLimit, setRateLimitHeaders } from "@/lib/api-rate-limit";
+import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
+import { logger } from "@/lib/logger";
 import { applyRateLimit, setRateLimitHeaders } from "@/lib/api-rate-limit";
 import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
 import { logger } from "@/lib/logger";
@@ -39,9 +62,49 @@ type BatchSubmitAcceptedResponse = {
   totalPayments?: number;
   totalTransactions?: number;
   message: string;
+  // #502: present on every 202 so clients can tell whether this was a fresh
+  // submission, a cached replay, and whether a stranded worker was resumed.
+  replayed?: boolean;
+  workerRestarted?: boolean;
 };
 
 const MAX_OPS = 100;
+
+/**
+ * A replayed job is "stranded" when it never reached a terminal state but its
+ * worker is no longer making progress: either it is still "queued" (the
+ * fire-and-forget worker was lost on a restart) or it has been "processing"
+ * without any update for longer than the staleness window (the worker crashed
+ * mid-job). A short window keeps us from racing a worker that is actively
+ * running, while still recovering genuinely stuck batches. (#502)
+ */
+const REPLAY_STALE_MS = Number(
+  process.env.IDEMPOTENCY_REPLAY_STALE_MS ?? 30_000,
+);
+
+function isStrandedJob(job: JobState | undefined): boolean {
+  if (!job) return false;
+  if (job.status !== "queued" && job.status !== "processing") return false;
+
+  const age = Date.now() - new Date(job.updatedAt).getTime();
+  return Number.isFinite(age) && age >= REPLAY_STALE_MS;
+}
+
+/**
+ * On idempotent replay, resume processing when the original job is stranded.
+ * Returns true when the worker was re-invoked.
+ */
+function resumeStrandedReplay(
+  jobId: string,
+  restartWorker: () => void,
+): boolean {
+  const job = getJob(jobId);
+
+  if (!isStrandedJob(job)) return false;
+
+  restartWorker();
+  return true;
+}
 
 function buildIdempotencyKey(body: RequestBody, headerKey: string | null): { idempotencyKey: string; requestHash: string } {
   const canonicalBody = canonicalizeIdempotencyPayload({
@@ -119,6 +182,25 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // #504: A pre-signed envelope must be signed by the wallet the job is
+      // attributed to. Reject any XDR whose source account (or fee-bump inner
+      // source) differs from publicKey before creating the job, so a client
+      // cannot attribute another wallet's signed transaction to publicKey.
+      const mismatch = findSourceMismatch(signedTransactions, publicKey, network);
+      if (mismatch) {
+        logger.warn(
+          { requestId, publicKey, index: mismatch.index, source: mismatch.source },
+          "Pre-signed transaction source does not match request publicKey",
+        );
+        return NextResponse.json(
+          {
+            error:
+              "Signed transaction source account does not match publicKey. Pre-signed batches must be signed by the authenticated wallet.",
+          },
+          { status: 403 },
+        );
+      }
+
       const outcome = createIdempotentJob<BatchSubmitAcceptedResponse>({
         idempotencyKey,
         requestHash,
@@ -138,14 +220,23 @@ export async function POST(request: NextRequest) {
       });
 
       if (outcome.replayed) {
-        logger.info({ requestId, jobId: outcome.jobId, publicKey, network, replayed: true }, "Batch submit job replayed (pre-signed mode)");
-        return setRateLimitHeaders(safeJsonResponse(outcome.responseBody, { status: 202 }), rate);
+        const workerRestarted = resumeStrandedReplay(outcome.jobId, () => {
+          void processJobInBackground(outcome.jobId, [], network, undefined, signedTransactions, requestId || undefined);
+        });
+        logger.info({ requestId, jobId: outcome.jobId, publicKey, network, replayed: true, workerRestarted }, "Batch submit job replayed (pre-signed mode)");
+        return setRateLimitHeaders(safeJsonResponse(
+          { ...outcome.responseBody, replayed: true, workerRestarted },
+          { status: 202 },
+        ), rate);
       }
 
       void processJobInBackground(outcome.jobId, [], network, undefined, signedTransactions, requestId || undefined);
 
       logger.info({ requestId, jobId: outcome.jobId, publicKey, network, replayed: false }, "Batch submit job queued and background worker triggered (pre-signed mode)");
-      return setRateLimitHeaders(safeJsonResponse(outcome.responseBody, { status: 202 }), rate);
+      return setRateLimitHeaders(safeJsonResponse(
+        { ...outcome.responseBody, replayed: false, workerRestarted: false },
+        { status: 202 },
+      ), rate);
     }
 
     // Mode 2: Server-side signing (legacy, requires STELLAR_SECRET_KEY)
@@ -253,8 +344,14 @@ export async function POST(request: NextRequest) {
     });
 
     if (outcome.replayed) {
-      logger.info({ requestId, jobId: outcome.jobId, publicKey, network, replayed: true }, "Batch submit job replayed (server-signed mode)");
-      return setRateLimitHeaders(safeJsonResponse(outcome.responseBody, { status: 202 }), rate);
+      const workerRestarted = resumeStrandedReplay(outcome.jobId, () => {
+        void processJobInBackground(outcome.jobId, payments, network, secretKey, undefined, requestId || undefined);
+      });
+      logger.info({ requestId, jobId: outcome.jobId, publicKey, network, replayed: true, workerRestarted }, "Batch submit job replayed (server-signed mode)");
+      return setRateLimitHeaders(safeJsonResponse(
+        { ...outcome.responseBody, replayed: true, workerRestarted },
+        { status: 202 },
+      ), rate);
     }
 
     // Fire-and-forget: start background processing without awaiting
@@ -262,7 +359,10 @@ export async function POST(request: NextRequest) {
 
     logger.info({ requestId, jobId: outcome.jobId, publicKey, network, replayed: false }, "Batch submit job queued and background worker triggered (server-signed mode)");
     // Return 202 Accepted with the job ID for polling
-    return setRateLimitHeaders(safeJsonResponse(outcome.responseBody, { status: 202 }), rate);
+    return setRateLimitHeaders(safeJsonResponse(
+      { ...outcome.responseBody, replayed: false, workerRestarted: false },
+      { status: 202 },
+    ), rate);
   } catch (error) {
     if (error instanceof IdempotencyConflictError) {
       logger.warn({ requestId }, `Idempotency conflict: ${error.message}`);
