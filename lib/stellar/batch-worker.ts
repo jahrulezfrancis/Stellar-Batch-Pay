@@ -10,7 +10,12 @@
 import { StellarService } from "./server";
 import { updateJob, getJob, incrementCompletedBatches } from "../job-store";
 import { createBatches } from "./batcher";
-import type { PaymentInstruction, BatchResult, PaymentResult } from "./types";
+import type {
+  PaymentInstruction,
+  BatchResult,
+  PaymentResult,
+  BatchJobNetwork,
+} from "./types";
 import { Horizon, TransactionBuilder, Networks } from "stellar-sdk";
 import { sumStellarAmounts, formatStellarAmount } from "./utils";
 import { horizonUrl } from "./network-config";
@@ -26,7 +31,7 @@ import { triggerWebhooksWithRetry } from "../webhooks";
 export async function processJobInBackground(
   jobId: string,
   payments: PaymentInstruction[],
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   secretKey?: string,
   signedTransactions?: string[],
   requestId?: string,

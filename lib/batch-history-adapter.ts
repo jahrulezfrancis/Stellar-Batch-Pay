@@ -6,7 +6,7 @@
  * cache with TTL.
  */
 
-import type { BatchResult, JobState } from "./stellar/types";
+import type { BatchResult, JobState, BatchJobNetwork } from "./stellar/types";
 
 const CACHE_KEY = "stellar_batch_history_cache";
 const CACHE_VERSION_KEY = "stellar_batch_history_version";
@@ -42,7 +42,7 @@ export async function fetchBatchHistory(
     page?: number;
     limit?: number;
     status?: string;
-    network?: string;
+    network?: BatchJobNetwork;
   }
 ): Promise<BatchResult[]> {
   const params = new URLSearchParams({
@@ -158,7 +158,7 @@ export async function getBatchHistory(
     page?: number;
     limit?: number;
     status?: string;
-    network?: string;
+    network?: BatchJobNetwork;
     forceRefresh?: boolean;
   }
 ): Promise<BatchResult[]> {

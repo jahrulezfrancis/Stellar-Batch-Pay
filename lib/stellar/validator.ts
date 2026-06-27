@@ -8,6 +8,7 @@ import {
   PaymentInstruction,
   MemoType,
   BatchConfig,
+  BatchJobNetwork,
   HorizonBalance,
   BalancesMap,
   BalanceValidationResult,
@@ -167,14 +168,10 @@ export function validateBatchConfig(config: BatchConfig): {
     };
   }
 
-  if (
-    config.network !== "testnet" &&
-    config.network !== "mainnet" &&
-    config.network !== "futurenet"
-  ) {
+  if (config.network !== "testnet" && config.network !== "mainnet") {
     return {
       valid: false,
-      error: "network must be 'testnet', 'mainnet', or 'futurenet'",
+      error: "network must be 'testnet' or 'mainnet'",
     };
   }
 
@@ -348,7 +345,7 @@ export function validateBatchForSubmit(
   payments: PaymentInstruction[],
   balancesMap: BalancesMap,
   missingTrustlines: string[],
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   estimatedOperations?: number,
   maxOperationsPerTransaction: number = 100,
 ): BatchSubmitValidationResult {

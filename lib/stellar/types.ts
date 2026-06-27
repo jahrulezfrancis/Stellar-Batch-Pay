@@ -4,7 +4,11 @@
 
 export type JobStatus = "queued" | "processing" | "completed" | "failed";
 
-export type Network = "testnet" | "mainnet" | "futurenet";
+export type HorizonNetwork = "testnet" | "mainnet" | "futurenet";
+// Backward-compatible alias for modules that still import `Network`.
+export type Network = HorizonNetwork;
+// Batch jobs are only supported on production-facing payment networks.
+export type BatchJobNetwork = "testnet" | "mainnet";
 
 export interface JobState {
   jobId: string;
@@ -13,7 +17,7 @@ export interface JobState {
   totalBatches: number;
   completedBatches: number;
   payments: PaymentInstruction[];
-  network: Network;
+  network: BatchJobNetwork;
   // #300: Support for pre-signed transactions (client-side signing)
   signedTransactions?: string[];
   result?: BatchResult;
@@ -72,7 +76,7 @@ export interface BatchResult {
   totalRecipients: number;
   totalAmount: string;
   totalTransactions: number;
-  network: Network;
+  network: BatchJobNetwork;
   timestamp: string;
   submittedAt?: string;
   results: PaymentResult[];
@@ -84,14 +88,14 @@ export interface BatchResult {
 
 export interface BatchConfig {
   maxOperationsPerTransaction: number;
-  network: Network;
+  network: BatchJobNetwork;
   secretKey: string;
 }
 
 /** Config for building unsigned transactions (wallet-signing flow) */
 export interface BuildBatchConfig {
   maxOperationsPerTransaction: number;
-  network: Network;
+  network: BatchJobNetwork;
   publicKey: string;
 }
 
@@ -107,7 +111,7 @@ export interface BuildBatchResult {
   xdrs: string[];
   batchCount: number;
   batchMeta?: BatchMetaEntry[];
-  network: Network;
+  network: BatchJobNetwork;
   publicKey: string;
   /** The Stellar network max transaction size constant (100KB) for client-side progress bars (#612). */
   maxTransactionBytes?: number;

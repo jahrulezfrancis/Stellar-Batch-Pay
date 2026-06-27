@@ -11,6 +11,9 @@ export { fetchFeeStats, getRecommendedFee, getFeeForOperations, clearFeeCache } 
 export type { FeeStats, FeeOptions } from './fee-service';
 export type { 
   PaymentInstruction, 
+  BatchJobNetwork,
+  HorizonNetwork,
+  Network,
   Asset, 
   StellarTransaction, 
   PaymentResult, 

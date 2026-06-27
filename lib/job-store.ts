@@ -29,6 +29,7 @@ import type {
   JobStatus,
   PaymentInstruction,
   BatchResult,
+  BatchJobNetwork,
 } from "./stellar/types";
 import { escapeLikePattern } from "./history-filters";
 
@@ -48,7 +49,7 @@ export class IdempotencyConflictError extends Error {
 interface BatchJobArgs {
   payments: PaymentInstruction[];
   signedTransactions?: string[];
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   publicKey: string;
 }
 
@@ -160,7 +161,7 @@ interface JobRow {
   completedBatches: number;
   payments: string;
   signedTransactions: string | null;
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   result: string | null;
   error: string | null;
   createdAt: string;
@@ -217,7 +218,7 @@ function pruneExpiredIdempotencyKeys(db: Database.Database, nowIso: string): voi
  */
 export function createJob(
   payments: PaymentInstruction[],
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   publicKey: string,
   signedTransactions?: string[],
 ): string {
@@ -232,7 +233,7 @@ export function createIdempotentJob<ResponseBody>(args: {
   idempotencyKey: string;
   requestHash: string;
   payments: PaymentInstruction[];
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   publicKey: string;
   signedTransactions?: string[];
   buildResponseBody: (jobId: string) => ResponseBody;
@@ -411,7 +412,7 @@ export function updateJob(
 
 export interface JobQueryFilters {
   status?: JobStatus;
-  network?: "testnet" | "mainnet";
+  network?: BatchJobNetwork;
   publicKey?: string;
   /** Case-insensitive substring match on jobId, payments JSON, or result JSON. */
   search?: string;

@@ -254,3 +254,58 @@ describe('StellarService.submitBatch — validation failures are not marked succ
     expect(result.results.every((r) => r.status === 'failed')).toBe(true);
   });
 });
+
+describe('StellarService.submitBatch — tx_bad_seq retry with rebuild (#seq-retry)', () => {
+  beforeEach(() => {
+    mockLoadAccount.mockClear();
+    mockSubmitTransaction.mockClear();
+    mockFetchBaseFee.mockClear();
+  });
+
+  test('reloads account and retries current transaction after tx_bad_seq', async () => {
+    const firstSourceAccount = new Account(SOURCE_KEYPAIR.publicKey(), '1');
+    const refreshedSourceAccount = new Account(SOURCE_KEYPAIR.publicKey(), '2');
+
+    mockLoadAccount
+      .mockResolvedValueOnce(firstSourceAccount)
+      .mockResolvedValueOnce(refreshedSourceAccount);
+
+    const txBadSeqError = {
+      response: {
+        data: {
+          extras: {
+            result_codes: {
+              transaction: 'tx_bad_seq',
+            },
+          },
+        },
+      },
+      message: 'tx_bad_seq',
+    };
+
+    mockSubmitTransaction
+      .mockRejectedValueOnce(txBadSeqError)
+      .mockResolvedValueOnce({ hash: 'mock-tx-hash-retried' });
+
+    const { StellarService } = await import('../lib/stellar/server');
+    const service = new StellarService({
+      secretKey: SOURCE_KEYPAIR.secret(),
+      network: 'testnet',
+      maxOperationsPerTransaction: 100,
+    });
+
+    const result = await service.submitBatch([
+      { address: RECIPIENT_1, amount: '10.0000000', asset: 'XLM' },
+      { address: RECIPIENT_2, amount: '20.0000000', asset: 'XLM' },
+    ]);
+
+    expect(mockSubmitTransaction).toHaveBeenCalledTimes(2);
+    expect(mockLoadAccount).toHaveBeenCalledTimes(2);
+    expect(result.summary.successful).toBe(2);
+    expect(result.summary.failed).toBe(0);
+    for (const row of result.results) {
+      expect(row.status).toBe('success');
+      expect(row.transactionHash).toBe('mock-tx-hash-retried');
+    }
+  });
+});

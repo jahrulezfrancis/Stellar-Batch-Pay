@@ -148,4 +148,33 @@ describe("triggerWebhooksWithRetry (#338)", () => {
 
     expect(received).toContain("batch.completed");
   });
+
+  test("blocks redirect responses to prevent SSRF", async () => {
+    let redirectorCalls = 0;
+    let metadataCalls = 0;
+
+    const metadataServer = await startServer(async (_req, res) => {
+      metadataCalls++;
+      res.writeHead(200);
+      res.end("metadata");
+    });
+
+    try {
+      ({ server, url: webhookUrl } = await startServer(async (_req, res) => {
+        redirectorCalls++;
+        res.writeHead(302, { Location: `${metadataServer.url}/latest/meta-data` });
+        res.end();
+      }));
+
+      const reg = registerWebhook(webhookUrl, ["batch.completed"]);
+      webhookId = reg.id;
+
+      await triggerWebhooksWithRetry("batch.completed", { jobId: "job-5" }, "job-5");
+
+      expect(redirectorCalls).toBe(1);
+      expect(metadataCalls).toBe(0);
+    } finally {
+      await stopServer(metadataServer.server);
+    }
+  });
 });

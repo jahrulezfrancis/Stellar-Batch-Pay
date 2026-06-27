@@ -167,13 +167,6 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        if (job.network !== "testnet" && job.network !== "mainnet") {
-            return NextResponse.json(
-                { error: "Retry is only supported on testnet and mainnet" },
-                { status: 400 },
-            );
-        }
-
         // Generate request hash for idempotency conflict detection
         const requestHash = hashRequestBody({ jobId, publicKey });
 
