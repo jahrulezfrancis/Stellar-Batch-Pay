@@ -7,19 +7,10 @@ import { ChevronDown, ChevronUp, ChevronRight, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useWallet } from "@/contexts/WalletContext"
+import { fetchHistory, batchHistoryQueryKey, type HistoricalBatch } from "@/lib/dashboard/fetch-history"
 import { cn } from "@/lib/utils"
 
-export interface HistoricalBatch {
-  jobId: string
-  createdAt: string
-  network: "testnet" | "mainnet"
-  totalPayments: number
-  totalAmount: string | null
-  completedBatches: number
-  totalBatches: number
-  status: "queued" | "processing" | "completed" | "failed"
-  summary: { successful: number; failed: number } | null
-}
+export type { HistoricalBatch }
 
 interface HistoryTableProps {
   data?: HistoricalBatch[]
@@ -61,43 +52,6 @@ function deriveDisplayStatus(batch: HistoricalBatch): "Success" | "Partial" | "F
   return "Success"
 }
 
-async function fetchHistory(params: {
-  publicKey: string
-  page: number
-  limit: number
-  statusFilter?: string
-  networkFilter?: string
-  searchFilter?: string
-  fromFilter?: string
-  sort?: string
-  order?: string
-}): Promise<{
-  items: HistoricalBatch[]
-  pagination: { totalPages: number; total: number }
-  aggregateMetrics?: {
-    totalBatches: number
-    totalPayments: number
-    successRate: string
-    totalVolume: string
-  }
-}> {
-  const urlParams = new URLSearchParams({
-    page: String(params.page),
-    limit: String(params.limit),
-    publicKey: params.publicKey,
-  })
-  if (params.statusFilter) urlParams.set("status", params.statusFilter)
-  if (params.networkFilter) urlParams.set("network", params.networkFilter)
-  if (params.searchFilter?.trim()) urlParams.set("search", params.searchFilter.trim())
-  if (params.fromFilter) urlParams.set("from", params.fromFilter)
-  if (params.sort) urlParams.set("sort", params.sort)
-  if (params.order) urlParams.set("order", params.order)
-
-  const res = await fetch(`/api/batch-history?${urlParams.toString()}`)
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
-}
-
 export function HistoryTable({
   data,
   className,
@@ -134,7 +88,7 @@ export function HistoryTable({
   }, [searchFilter])
 
   const queryKey = useMemo(
-    () => ["batch-history", publicKey, page, limit, statusFilter, networkFilter, debouncedSearch, fromFilter, sortColumn, sortOrder] as const,
+    () => batchHistoryQueryKey(publicKey, page, limit, statusFilter, networkFilter, debouncedSearch, fromFilter, sortColumn, sortOrder),
     [publicKey, page, limit, statusFilter, networkFilter, debouncedSearch, fromFilter, sortColumn, sortOrder],
   )
 
