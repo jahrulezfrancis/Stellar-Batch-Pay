@@ -32,7 +32,11 @@ import {
   buildBalancesMap,
   validateBalances,
 } from "@/lib/stellar/validator";
-import type { PaymentInstruction, HorizonBalance } from "@/lib/stellar/types";
+import type {
+  PaymentInstruction,
+  HorizonBalance,
+  BatchJobNetwork,
+} from "@/lib/stellar/types";
 import { getRecommendedFee } from "@/lib/stellar/fee-service";
 import { MAX_UPLOAD_ROWS } from "@/lib/stellar/parser";
 import { truncateMemoToBytes } from "@/lib/stellar/utils";
@@ -40,7 +44,7 @@ import { applyRateLimit, setRateLimitHeaders } from "@/lib/api-rate-limit";
 
 interface RequestBody {
   payments: PaymentInstruction[];
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   publicKey: string;
 }
 

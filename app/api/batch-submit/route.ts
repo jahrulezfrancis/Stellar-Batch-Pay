@@ -17,14 +17,14 @@ import { MAX_UPLOAD_ROWS } from "@/lib/stellar/parser";
 import { safeJsonResponse } from "@/lib/safe-json";
 import { createIdempotentJob, IdempotencyConflictError } from "@/lib/job-store";
 import { processJobInBackground } from "@/lib/stellar/batch-worker";
-import type { PaymentInstruction } from "@/lib/stellar/types";
+import type { PaymentInstruction, BatchJobNetwork } from "@/lib/stellar/types";
 import { applyRateLimit, setRateLimitHeaders } from "@/lib/api-rate-limit";
 import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
 import { logger } from "@/lib/logger";
 
 interface RequestBody {
   payments?: PaymentInstruction[];
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   publicKey: string;
   // #300: Support for client-side signed transactions (XDR format)
   signedTransactions?: string[];

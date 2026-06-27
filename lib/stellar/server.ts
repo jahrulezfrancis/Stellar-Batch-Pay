@@ -32,6 +32,11 @@ import Big from "big.js";
 import { parseStellarAmount, formatStellarAmount, parseAsset, truncateMemoToBytes } from "./utils";
 export { parseAsset };
 
+const BAD_SEQUENCE_RETRY_LIMIT = Math.max(
+  1,
+  Number.parseInt(process.env.STELLAR_BAD_SEQUENCE_RETRY_LIMIT ?? "3", 10) || 3,
+);
+
 export class StellarService {
   private keypair: Keypair;
   private server: Horizon.Server;
@@ -103,14 +108,11 @@ export class StellarService {
             const memoId = `bp-${Date.now()}-${txCount}`;
             memo = Memo.text(truncateMemoToBytes(memoId));
           }
-
-          let builder = new TransactionBuilder(sourceAccount, {
-            fee: String(fee),
-            networkPassphrase:
-              this.network === "testnet"
-                ? Networks.TESTNET
-                : Networks.PUBLIC,
-          }).addMemo(memo);
+          const operationInputs: Array<{
+            destination: string;
+            asset: StellarAsset;
+            amount: string;
+          }> = [];
 
           for (const payment of batch.payments) {
             const validation = validatePaymentInstruction(payment);
@@ -145,13 +147,11 @@ export class StellarService {
               continue;
             }
 
-            builder = builder.addOperation(
-              Operation.payment({
-                destination: payment.address,
-                asset,
-                amount: payment.amount,
-              }),
-            );
+            operationInputs.push({
+              destination: payment.address,
+              asset,
+              amount: payment.amount,
+            });
 
             totalAmountBig = totalAmountBig.plus(parseStellarAmount(payment.amount));
 
@@ -173,11 +173,58 @@ export class StellarService {
             continue;
           }
 
-          // Build, sign, and submit transaction
-          const transaction = builder.setTimeout(300).build();
-          transaction.sign(this.keypair);
-          const result = await this.server.submitTransaction(transaction);
-          sourceAccount.incrementSequenceNumber();
+          // Build, sign, and submit transaction. Retry tx_bad_seq with a fresh
+          // account sequence by rebuilding the envelope from operation inputs.
+          let attempt = 0;
+          let lastSubmissionError: unknown;
+          let result: { hash: string } | null = null;
+
+          while (attempt < BAD_SEQUENCE_RETRY_LIMIT) {
+            try {
+              let builder = new TransactionBuilder(sourceAccount, {
+                fee: String(fee),
+                networkPassphrase:
+                  this.network === "testnet"
+                    ? Networks.TESTNET
+                    : Networks.PUBLIC,
+              }).addMemo(memo);
+
+              for (const operationInput of operationInputs) {
+                builder = builder.addOperation(
+                  Operation.payment({
+                    destination: operationInput.destination,
+                    asset: operationInput.asset,
+                    amount: operationInput.amount,
+                  }),
+                );
+              }
+
+              const transaction = builder.setTimeout(300).build();
+              transaction.sign(this.keypair);
+              const submitResult = await this.server.submitTransaction(transaction);
+              sourceAccount.incrementSequenceNumber();
+              result = submitResult;
+              break;
+            } catch (submissionError) {
+              lastSubmissionError = submissionError;
+              if (
+                isBadSequenceError(submissionError) &&
+                attempt < BAD_SEQUENCE_RETRY_LIMIT - 1
+              ) {
+                sourceAccount = await this.server.loadAccount(this.keypair.publicKey());
+                attempt++;
+                continue;
+              }
+              throw submissionError;
+            }
+          }
+
+          if (!result) {
+            throw (
+              lastSubmissionError ??
+              new Error("Transaction submission failed after sequence retries.")
+            );
+          }
 
           txCount++;
 

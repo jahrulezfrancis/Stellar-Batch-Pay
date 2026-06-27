@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import type { BatchJobNetwork } from "@/lib/stellar/types";
 
 export interface DashboardMetricsTimeSeriesPoint {
   date: string;
@@ -21,7 +22,7 @@ export interface DashboardMetrics {
 
 async function fetchDashboardMetrics(
   publicKey: string,
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   range?: "7d" | "30d" | "90d",
 ): Promise<DashboardMetrics> {
   const params = new URLSearchParams({ publicKey, network });
@@ -38,7 +39,7 @@ async function fetchDashboardMetrics(
 
 export function useDashboardMetrics(
   publicKey: string | null,
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   range?: "7d" | "30d" | "90d",
 ) {
   const queryKey = ["dashboard-metrics", publicKey, network, range] as const;

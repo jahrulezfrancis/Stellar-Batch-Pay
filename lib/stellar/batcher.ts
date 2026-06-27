@@ -13,7 +13,7 @@ import {
 } from "stellar-sdk";
 import Big from "big.js";
 
-import { PaymentInstruction } from "./types";
+import { PaymentInstruction, BatchJobNetwork } from "./types";
 import { getRecommendedFee } from "./fee-service";
 import { parseAsset } from "./utils";
 export { getBatchSummary } from "./summary";
@@ -25,7 +25,7 @@ export interface Batch {
 
 export interface CreateBatchesOptions {
   maxTransactionBytes?: number;
-  network?: "testnet" | "mainnet";
+  network?: BatchJobNetwork;
   server?: Horizon.Server;
   /** Provide a Soroban RPC server to enable simulation-based size estimation (#218) */
   sorobanServer?: SorobanRpc.Server;
@@ -46,7 +46,7 @@ const SIZE_ESTIMATION_ACCOUNT = new Account(
  */
 export async function simulateBatchTransactionSize(
   payments: PaymentInstruction[],
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   sorobanServer: SorobanRpc.Server,
   sourcePublicKey: string,
   fee?: number,
@@ -104,7 +104,7 @@ function getTransactionByteLength(xdr: string | Buffer): number {
 
 export function estimateBatchTransactionSize(
   payments: PaymentInstruction[],
-  network: "testnet" | "mainnet" = "testnet",
+  network: BatchJobNetwork = "testnet",
   fee?: number,
 ): number {
   const networkPassphrase =

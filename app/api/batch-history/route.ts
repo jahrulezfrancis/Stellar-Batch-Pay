@@ -19,7 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { StrKey } from "stellar-sdk";
 import { getAllJobs, countJobs } from "@/lib/job-store";
 import { safeJsonResponse } from "@/lib/safe-json";
-import type { JobStatus } from "@/lib/stellar/types";
+import type { JobStatus, BatchJobNetwork } from "@/lib/stellar/types";
 
 function parseIsoTimestamp(value: string | null): string | undefined {
   if (!value) return undefined;
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
 
   const validStatuses: JobStatus[] = ["queued", "processing", "completed", "failed"];
   const status  = validStatuses.includes(rawStatus as JobStatus) ? (rawStatus as JobStatus) : undefined;
-  const network: "testnet" | "mainnet" | undefined =
+  const network: BatchJobNetwork | undefined =
     rawNetwork === "testnet" || rawNetwork === "mainnet" ? rawNetwork : undefined;
 
   try {
