@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 interface BatchErrorBoundaryProps {
   children: ReactNode;
   storageKey: string;
-  onRestore?: (saved: any) => void;
+  onRestore?: (saved: unknown) => void;
 }
 
 interface BatchErrorBoundaryState {
@@ -37,7 +37,11 @@ export class BatchErrorBoundary extends Component<
   private handleRestore = () => {
     const saved = window.sessionStorage.getItem(this.props.storageKey);
     if (saved && this.props.onRestore) {
-      this.props.onRestore(JSON.parse(saved));
+      try {
+        this.props.onRestore(JSON.parse(saved) as unknown);
+      } catch (error) {
+        console.error("Failed to restore batch flow state:", error);
+      }
     }
 
     this.setState({
@@ -58,7 +62,7 @@ export class BatchErrorBoundary extends Component<
           {this.state.errorMessage ?? "The batch screen failed to render."}
         </p>
         <Button onClick={this.handleRestore} className="mt-5">
-          Restore saved batch
+          Try again
         </Button>
       </div>
     );
