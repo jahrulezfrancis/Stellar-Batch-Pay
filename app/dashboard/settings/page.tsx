@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -26,6 +26,11 @@ import { DangerZoneCard } from "@/components/dashboard/settings/DangerZoneCard";
 import { SecuritySettingsCard } from "@/components/dashboard/settings/SecuritySettingsCard";
 import { ApiDeveloperCard } from "@/components/dashboard/settings/ApiDeveloperCard";
 import { useTheme } from "next-themes";
+import {
+  loadSettingsPreferences,
+  saveSettingsPreferences,
+  type SettingsPreferences,
+} from "@/lib/settings-prefs";
 
 export default function SettingsPage() {
   const { publicKey, connect, disconnect, isConnecting } = useWallet();
@@ -38,9 +43,50 @@ export default function SettingsPage() {
   const [completionNotifications, setCompletionNotifications] = useState(true);
   const [mounted, setMounted] = useState(false);
 
+  // Load preferences from localStorage on mount
   useEffect(() => {
     setMounted(true);
+    const prefs = loadSettingsPreferences();
+    setDefaultNetwork(prefs.defaultNetwork);
+    setDefaultAsset(prefs.defaultAsset);
+    setBatchValidation(prefs.batchValidation);
+    setCompletionNotifications(prefs.completionNotifications);
   }, []);
+
+  // Debounced save to localStorage
+  const debouncedSave = useCallback(
+    (() => {
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      return (prefs: Partial<SettingsPreferences>) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          saveSettingsPreferences(prefs);
+        }, 500);
+      };
+    })(),
+    []
+  );
+
+  // Update handlers to save preferences
+  const handleDefaultNetworkChange = useCallback((value: string) => {
+    setDefaultNetwork(value);
+    debouncedSave({ defaultNetwork: value as "testnet" | "mainnet" });
+  }, [debouncedSave]);
+
+  const handleDefaultAssetChange = useCallback((value: string) => {
+    setDefaultAsset(value);
+    debouncedSave({ defaultAsset: value as "xlm" | "usdc" | "usdt" });
+  }, [debouncedSave]);
+
+  const handleBatchValidationChange = useCallback((checked: boolean) => {
+    setBatchValidation(checked);
+    debouncedSave({ batchValidation: checked });
+  }, [debouncedSave]);
+
+  const handleCompletionNotificationsChange = useCallback((checked: boolean) => {
+    setCompletionNotifications(checked);
+    debouncedSave({ completionNotifications: checked });
+  }, [debouncedSave]);
 
   const handleCopyAddress = () => {
     if (publicKey) {
@@ -237,7 +283,7 @@ export default function SettingsPage() {
             <label className="text-sm text-slate-400 font-medium">
               Default Network
             </label>
-            <Select value={defaultNetwork} onValueChange={setDefaultNetwork}>
+            <Select value={defaultNetwork} onValueChange={handleDefaultNetworkChange}>
               <SelectTrigger className="w-full h-16 bg-slate-900 border-slate-800/50 text-white hover:bg-slate-950 [&_svg]:text-white [&_svg]:opacity-100 text-lg px-4 [&_svg]:size-5">
                 <SelectValue />
               </SelectTrigger>
@@ -263,7 +309,7 @@ export default function SettingsPage() {
             <label className="text-sm text-slate-400 font-medium">
               Default Asset
             </label>
-            <Select value={defaultAsset} onValueChange={setDefaultAsset}>
+            <Select value={defaultAsset} onValueChange={handleDefaultAssetChange}>
               <SelectTrigger className="w-full h-16 bg-slate-950 border-slate-800/50 text-white hover:bg-slate-950 [&_svg]:text-white [&_svg]:opacity-100 text-lg px-4 [&_svg]:size-5">
                 <SelectValue />
               </SelectTrigger>
@@ -300,7 +346,7 @@ export default function SettingsPage() {
             </div>
             <Switch
               checked={batchValidation}
-              onCheckedChange={setBatchValidation}
+              onCheckedChange={handleBatchValidationChange}
               className="data-[state=checked]:bg-emerald-500"
             />
           </div>
@@ -317,7 +363,7 @@ export default function SettingsPage() {
             </div>
             <Switch
               checked={completionNotifications}
-              onCheckedChange={setCompletionNotifications}
+              onCheckedChange={handleCompletionNotificationsChange}
               className="data-[state=checked]:bg-emerald-500"
             />
           </div>

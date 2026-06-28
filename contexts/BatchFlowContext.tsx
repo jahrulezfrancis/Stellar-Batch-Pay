@@ -9,6 +9,7 @@ import { batchHistoryKeys, dashboardMetricsKeys } from "@/lib/query-keys";
 import { parsePaymentFile, analyzeParsedPayments } from "@/lib/stellar/parser";
 import { getBatchSummary } from "@/lib/stellar/summary";
 import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
+import { loadSettingsPreferences } from "@/lib/settings-prefs";
 import type {
   ParsedPaymentFile,
   BatchResult,
@@ -131,6 +132,14 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { publicKey } = useWallet();
   const { pushBatchNotification } = useNotifications();
+
+  // Load default network from settings preferences on mount (#576)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const prefs = loadSettingsPreferences();
+      setSelectedNetwork(prefs.defaultNetwork);
+    }
+  }, []);
 
   // Sync state to sessionStorage to prevent data loss on render crashes
   useEffect(() => {
