@@ -1,8 +1,12 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { RecentBatchesTable } from "@/components/dashboard/RecentBatchesTable";
 import { OverviewMetrics } from "@/components/dashboard/overview-metrics";
-import { PaymentVolumeChart } from "@/components/dashboard/PaymentVolumeChart";
+import {
+  PaymentVolumeChart,
+  type PaymentVolumePoint,
+} from "@/components/dashboard/PaymentVolumeChart";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { DeveloperResources } from "@/components/dashboard/developer-resources";
 import { DashboardWalletEmpty } from "@/components/dashboard/dashboard-wallet-empty";
@@ -11,11 +15,31 @@ import { useDashboardMetrics } from "@/hooks/use-dashboard-metrics";
 import { Badge } from "@/components/ui/badge";
 import { t } from "@/lib/i18n";
 
+type Range = "7d" | "30d" | "90d";
+
 export default function DashboardPage() {
   const { publicKey, network, expectedNetwork } = useWallet();
   const dashboardNetwork = (network ?? expectedNetwork) === "mainnet" ? "mainnet" : "testnet";
-  const { metrics, loading, error } = useDashboardMetrics(publicKey, dashboardNetwork);
+  const [range, setRange] = useState<Range>("7d");
+  // #518: request the same range the chart shows so the main dashboard renders
+  // the wallet's real volume, sharing the analytics page's metrics source.
+  const { metrics, loading, error } = useDashboardMetrics(publicKey, dashboardNetwork, range);
   const hasNoData = Boolean(publicKey && !loading && !error && metrics && metrics.totalPayments === 0);
+
+  // #518: map the API time-series into the chart's per-range shape. Undefined
+  // when the API has no series yet, which lets the chart show its empty state
+  // instead of fictional sample volume.
+  const chartData = useMemo(() => {
+    if (!metrics?.timeSeries) return undefined;
+    const points: PaymentVolumePoint[] = metrics.timeSeries.map((p) => ({
+      date: new Date(p.date).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      }),
+      amount: p.amount,
+    }));
+    return { [range]: points } as Partial<Record<Range, PaymentVolumePoint[]>>;
+  }, [metrics?.timeSeries, range]);
 
   return (
     <div className="space-y-8">
@@ -51,7 +75,13 @@ export default function DashboardPage() {
               <QuickActions />
             </div>
             <div className="lg:col-span-2">
-              <PaymentVolumeChart />
+              {/* #518: previewMode is intentionally omitted (defaults false) so
+                  a connected wallet never sees mock volume. */}
+              <PaymentVolumeChart
+                initialRange={range}
+                onRangeChange={setRange}
+                data={chartData}
+              />
             </div>
           </div>
 
