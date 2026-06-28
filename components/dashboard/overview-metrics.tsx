@@ -1,6 +1,9 @@
 "use client"
 
 import { MetricCard } from "./metric-card"
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import { RefreshCw } from "lucide-react"
 import { t } from "@/lib/i18n"
 
 interface MetricData {
@@ -23,9 +26,35 @@ interface OverviewMetricsProps {
     activeBatchesTrend?: string
   } | null
   loading?: boolean
+  error?: string | null
+  onRetry?: () => void
 }
 
-export function OverviewMetrics({ metrics, loading }: OverviewMetricsProps) {
+export function OverviewMetrics({ metrics, loading, error, onRetry }: OverviewMetricsProps) {
+  if (error && !loading) {
+    return (
+      <div className="space-y-4">
+        <Alert variant="destructive" className="border-red-500/30 bg-red-500/10">
+          <AlertTitle className="text-red-200">{t("dashboard.metrics.errorTitle")}</AlertTitle>
+          <AlertDescription className="text-red-300">
+            {error}
+            {onRetry && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRetry}
+                className="ml-2 mt-2 border-red-500/50 text-red-200 hover:bg-red-500/20"
+              >
+                <RefreshCw className="h-3 w-3 mr-1" />
+                {t("dashboard.metrics.retry")}
+              </Button>
+            )}
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
+
   const metricsData: MetricData[] = [
     {
       title: t("dashboard.metrics.totalPayments"),

@@ -87,6 +87,8 @@ interface BatchFlowContextType {
   setBatchMeta: (meta: BatchMetaEntry[] | undefined) => void;
   batchMetaLoading: boolean;
   setBatchMetaLoading: (loading: boolean) => void;
+  estimatedFees: string | null;
+  setEstimatedFees: (fees: string | null) => void;
 
   // Actions
   onSkipToggle: (index: number) => void;
@@ -127,6 +129,7 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
   const [convertedIndices, setConvertedIndices] = useState<number[]>([]);
   const [batchMeta, setBatchMeta] = useState<BatchMetaEntry[] | undefined>();
   const [batchMetaLoading, setBatchMetaLoading] = useState(false);
+  const [estimatedFees, setEstimatedFees] = useState<string | null>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queryClient = useQueryClient();
@@ -257,6 +260,7 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
     async (payments: PaymentInstruction[]) => {
       if (!publicKey || payments.length === 0) {
         setBatchMeta(undefined);
+        setEstimatedFees(null);
         return;
       }
 
@@ -274,11 +278,14 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
         const data = await response.json();
         if (response.ok) {
           setBatchMeta(data.batchMeta);
+          setEstimatedFees(data.estimatedFees ?? null);
         } else {
           setBatchMeta(undefined);
+          setEstimatedFees(null);
         }
       } catch {
         setBatchMeta(undefined);
+        setEstimatedFees(null);
       } finally {
         setBatchMetaLoading(false);
       }
@@ -463,6 +470,8 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
         setBatchMeta,
         batchMetaLoading,
         setBatchMetaLoading,
+        estimatedFees,
+        setEstimatedFees,
         onSkipToggle: handleSkipToggle,
         onConvertToggle: handleConvertToggle,
         handleRetryFailed,

@@ -29,6 +29,7 @@ import { BatchFlowProvider, useBatchFlow } from "@/contexts/BatchFlowContext";
 import { t } from "@/lib/i18n";
 
 function NewBatchPaymentPageContent() {
+  const { publicKey } = useWallet();
   const {
     step,
     setStep,
@@ -48,13 +49,12 @@ function NewBatchPaymentPageContent() {
     entryMode,
     setEntryMode,
     batchMetaLoading,
+    estimatedFees,
     handleManualContinue,
     handleFileSelect,
-    loadBatchMeta,
     handleRestore,
+    loadBatchMeta,
   } = useBatchFlow();
-
-  const { publicKey } = useWallet();
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -75,10 +75,6 @@ function NewBatchPaymentPageContent() {
     { id: 4, name: t("newBatch.stepSubmit") },
   ];
 
-  const estimatedFees = summary
-    ? (summary.validCount * 0.0001).toFixed(4)
-    : "0.0000";
-
   const canNavigateToStep = (targetStep: number): boolean => {
     if (targetStep === step) return true;
     if (targetStep === 1) return true;
@@ -93,6 +89,12 @@ function NewBatchPaymentPageContent() {
       setStep(targetStep);
     }
   };
+
+  const displayFees = estimatedFees
+    ? estimatedFees
+    : summary
+      ? (summary.validCount * 0.0001).toFixed(4)
+      : "0.0000";
 
   return (
     <div className="space-y-6">
@@ -344,11 +346,16 @@ function NewBatchPaymentPageContent() {
                           </div>
                         </div>
                         <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
-                          <div className="text-xs text-slate-500 uppercase font-bold mb-1">
+                          <div className="text-xs text-slate-500 uppercase font-bold mb-1 flex items-center gap-1">
                             {t("newBatch.estFees")}
+                            {!estimatedFees && (
+                              <span className="text-slate-600" title="Approximation based on 0.0001 XLM per payment. Click 'Review Batch' for accurate estimate using current network fees.">
+                                (approx.)
+                              </span>
+                            )}
                           </div>
                           <div className="text-xl font-bold text-white">
-                            {estimatedFees} XLM
+                            {displayFees} XLM
                           </div>
                         </div>
                       </div>

@@ -21,9 +21,7 @@ export default function DashboardPage() {
   const { publicKey, network, expectedNetwork } = useWallet();
   const dashboardNetwork = (network ?? expectedNetwork) === "mainnet" ? "mainnet" : "testnet";
   const [range, setRange] = useState<Range>("7d");
-  // #518: request the same range the chart shows so the main dashboard renders
-  // the wallet's real volume, sharing the analytics page's metrics source.
-  const { metrics, loading, error } = useDashboardMetrics(publicKey, dashboardNetwork, range);
+  const { metrics, loading, error, refetch } = useDashboardMetrics(publicKey, dashboardNetwork, range);
   const hasNoData = Boolean(publicKey && !loading && !error && metrics && metrics.totalPayments === 0);
 
   // #518: map the API time-series into the chart's per-range shape. Undefined
@@ -68,7 +66,7 @@ export default function DashboardPage() {
             </div>
           ) : null}
 
-          <OverviewMetrics metrics={metrics} loading={loading} />
+          <OverviewMetrics metrics={metrics} loading={loading} error={error} onRetry={refetch} />
 
           <div className="grid gap-8 lg:grid-cols-3">
             <div className="lg:col-span-1">

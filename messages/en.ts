@@ -40,6 +40,8 @@ export const messages = {
       activeBatches: "Active Batches",
       loading: "Loading...",
       noTrend: "No trend",
+      errorTitle: "Unable to load metrics",
+      retry: "Retry",
     },
     noBatchesYet: "No batches yet. Real activity will appear after your first batch payment.",
     quickActions: "Quick Actions",
