@@ -249,6 +249,62 @@ describe('buildRevokeTransaction (#392)', () => {
   });
 });
 
+describe('amount precision in buildDepositTransaction (#506)', () => {
+  test('encodes high-precision amounts as exact i128 stroops', async () => {
+    const callSpy = vi.spyOn(Contract.prototype, 'call');
+    const { buildDepositTransaction } = await import('../lib/stellar/vesting');
+
+    const sender = Keypair.random().publicKey();
+    // Amounts that the old parseFloat path could not represent faithfully.
+    const payments = [
+      payment(Keypair.random().publicKey(), '0.1234567'),
+      payment(Keypair.random().publicKey(), '123456789.1234567'),
+      payment(Keypair.random().publicKey(), '99999999.9999999'),
+    ];
+
+    await buildDepositTransaction(
+      VALID_CONTRACT_ID,
+      payments,
+      1_700_000_000,
+      1_800_000_000,
+      86_400,
+      86_400,
+      'testnet',
+      sender,
+    ).catch(() => undefined);
+
+    expect(callSpy).toHaveBeenCalled();
+    // deposit args: [sender, tokens, recipients, amounts, ...]
+    const amountsVec = callSpy.mock.calls[0][4] as xdr.ScVal;
+    const decoded = scValToNative(amountsVec) as bigint[];
+    expect(decoded).toEqual([
+      1_234_567n,
+      1_234_567_891_234_567n,
+      999_999_999_999_999n,
+    ]);
+    callSpy.mockRestore();
+  });
+
+  test('rejects amounts with more than 7 decimal places before RPC', async () => {
+    const { buildDepositTransaction } = await import('../lib/stellar/vesting');
+    const sender = Keypair.random().publicKey();
+    const payments = [payment(Keypair.random().publicKey(), '0.12345678')];
+
+    await expect(
+      buildDepositTransaction(
+        VALID_CONTRACT_ID,
+        payments,
+        1_700_000_000,
+        1_800_000_000,
+        86_400,
+        86_400,
+        'testnet',
+        sender,
+      ),
+    ).rejects.toThrow(/more than 7 decimal places/);
+  });
+});
+
 describe('buildTransferVestingRightsTransaction', () => {
   test('transfer_vesting_rights passes three contract arguments', async () => {
     const callSpy = vi.spyOn(Contract.prototype, 'call');

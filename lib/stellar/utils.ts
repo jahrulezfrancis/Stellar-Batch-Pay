@@ -44,6 +44,7 @@ export function formatAmount(amount: string | number): string {
 
 // Stellar uses 7 decimal places (1 XLM = 10,000,000 stroops)
 const STELLAR_DECIMALS = 7
+const STELLAR_STROOPS_PER_UNIT = new Big(10 ** STELLAR_DECIMALS)
 const STELLAR_MAX_AMOUNT = new Big('922337203685.4775807')
 
 /**
@@ -104,6 +105,37 @@ export function parseStellarAmount(s: string): Big {
   }
 
   return amount
+}
+
+/**
+ * Converts a human-readable Stellar amount string into i128 stroops (bigint).
+ *
+ * Stellar amounts have exactly 7 decimal places of precision; 1 unit = 10,000,000
+ * stroops. This uses big.js decimal arithmetic instead of `parseFloat`, so values
+ * like "123456789.1234567" or "0.0000001" convert to the exact stroop integer with
+ * no binary floating-point rounding error. Invalid, negative, out-of-range, or
+ * over-precise inputs are rejected by {@link parseStellarAmount} before conversion,
+ * so a malformed amount never reaches Soroban as a wrong i128 value.
+ *
+ * This is the single source of truth for stroop conversion shared by the vesting
+ * deposit/claim code and any other Soroban i128 amount serialization (#506).
+ *
+ * @param amount - The amount string to convert (e.g. "100.1234567")
+ * @returns The amount in stroops as a bigint (e.g. 1001234567n)
+ * @throws {Error} If the input is not a valid Stellar amount string
+ *
+ * @example
+ * amountToStroopsI128("0.0000001")     // → 1n
+ * amountToStroopsI128("100")           // → 1000000000n
+ * amountToStroopsI128("99999999.9999999") // → 999999999999999n
+ * amountToStroopsI128("0.12345678")    // → throws (8 decimal places)
+ */
+export function amountToStroopsI128(amount: string): bigint {
+  const value = parseStellarAmount(amount)
+  // parseStellarAmount guarantees ≤ 7 decimal places, so multiplying by 1e7
+  // yields an exact integer; round(0) is defensive and never discards data here.
+  const stroops = value.times(STELLAR_STROOPS_PER_UNIT).round(0)
+  return BigInt(stroops.toFixed(0))
 }
 
 /**
