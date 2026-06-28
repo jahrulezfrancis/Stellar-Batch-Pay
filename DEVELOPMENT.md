@@ -306,6 +306,21 @@ fetches for the same query key.
 - All `useQuery`, `useMutation`, and `invalidateQueries` calls share the same
   `QueryClient` instance and cache namespace.
 
+### Query keys
+
+Query keys come from the central factory in `lib/query-keys.ts` — do not write
+raw string-literal keys in hooks or components. The hierarchy is parent → child:
+
+- `batchHistoryKeys.all(publicKey)` → `["batch-history", publicKey]` (parent)
+- `batchHistoryKeys.list(publicKey, …filters)` → `["batch-history", publicKey, …filters]` (children: pagination/filter/sort)
+- `dashboardMetricsKeys.all(publicKey)` / `dashboardMetricsKeys.detail(publicKey, network, range)`
+
+TanStack Query matches partially by default (`exact: false`), so **invalidate via
+the `.all(publicKey)` parent** to refetch every paginated/filtered child list.
+Batch history and dashboard metrics are separate namespaces: when a batch
+completes, invalidate **both** parents (see `contexts/BatchFlowContext.tsx`) so the
+recent table, the history page, and the metric cards all refresh.
+
 ## Testing Strategy
 
 ### Unit Tests

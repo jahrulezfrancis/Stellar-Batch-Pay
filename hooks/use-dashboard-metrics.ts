@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { BatchJobNetwork } from "@/lib/stellar/types";
+import { dashboardMetricsKeys } from "@/lib/query-keys";
 
 export interface DashboardMetricsTimeSeriesPoint {
   date: string;
@@ -42,7 +43,7 @@ export function useDashboardMetrics(
   network: BatchJobNetwork,
   range?: "7d" | "30d" | "90d",
 ) {
-  const queryKey = ["dashboard-metrics", publicKey, network, range] as const;
+  const queryKey = dashboardMetricsKeys.detail(publicKey, network, range);
 
   const { data: metrics, isLoading, error } = useQuery({
     queryKey,

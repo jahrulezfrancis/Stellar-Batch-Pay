@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useWallet } from "@/contexts/WalletContext";
 import { useNotifications } from "@/contexts/NotificationsContext";
-import { BATCH_HISTORY_QUERY_KEY } from "@/lib/dashboard/fetch-history";
+import { batchHistoryKeys, dashboardMetricsKeys } from "@/lib/query-keys";
 import { parsePaymentFile, analyzeParsedPayments } from "@/lib/stellar/parser";
 import { getBatchSummary } from "@/lib/stellar/summary";
 import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
@@ -202,8 +202,16 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
             setResult(data.result ?? null);
             setIsSubmitting(false);
             setStep(4);
+            // Invalidate the batch-history parent key: partial matching
+            // (exact: false default) refreshes every paginated/filtered list —
+            // recent table, history page — for this account (#521).
             void queryClient.invalidateQueries({
-              queryKey: [BATCH_HISTORY_QUERY_KEY, ownerPublicKey],
+              queryKey: batchHistoryKeys.all(ownerPublicKey),
+            });
+            // A completed batch also changes the dashboard metric cards, which
+            // live in a separate namespace and would otherwise stay stale (#521 / #523).
+            void queryClient.invalidateQueries({
+              queryKey: dashboardMetricsKeys.all(ownerPublicKey),
             });
             pushBatchNotification({
               jobId: data.jobId ?? id,

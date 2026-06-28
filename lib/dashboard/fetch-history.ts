@@ -23,13 +23,23 @@ export interface BatchHistoryResponse {
   }
 }
 
-export const BATCH_HISTORY_QUERY_KEY = "batch-history" as const
+import { BATCH_HISTORY_QUERY_KEY, batchHistoryKeys } from "@/lib/query-keys"
 
+// Re-exported from the central query-key factory (#521) so existing imports
+// (`@/lib/dashboard/fetch-history`) keep working while there is one source of
+// truth for the key structure.
+export { BATCH_HISTORY_QUERY_KEY, batchHistoryKeys }
+
+/**
+ * Builds a specific (paginated/filtered) batch-history query key.
+ * Thin wrapper over `batchHistoryKeys.list` kept for call-site brevity in the
+ * dashboard tables; invalidation should always target `batchHistoryKeys.all`.
+ */
 export function batchHistoryQueryKey(
   publicKey: string | null | undefined,
   ...rest: unknown[]
 ) {
-  return [BATCH_HISTORY_QUERY_KEY, publicKey, ...rest] as const
+  return batchHistoryKeys.list(publicKey, ...rest)
 }
 
 export async function fetchHistory(params: {

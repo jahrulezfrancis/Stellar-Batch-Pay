@@ -4,10 +4,12 @@ import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BatchResult } from '@/lib/stellar/types';
 import { fetchBatchHistory, setCachedHistory, clearCachedHistory } from '@/lib/batch-history-adapter';
+import { batchHistoryKeys } from '@/lib/query-keys';
 
 export function useBatchHistory(publicKey?: string | null) {
   const queryClient = useQueryClient();
-  const queryKey = ['batch-history', publicKey] as const;
+  // Central key factory (#521): this account's parent batch-history key.
+  const queryKey = batchHistoryKeys.all(publicKey);
 
   const { data: history = [], isLoading, error } = useQuery({
     queryKey,
