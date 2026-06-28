@@ -73,7 +73,7 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 
 let _db: Database.Database | null = null;
 
-function getDb(): Database.Database {
+export function getDb(): Database.Database {
   if (_db) return _db;
 
   // Ensure the data directory exists at runtime
@@ -335,6 +335,34 @@ export function incrementCompletedBatches(jobId: string): void {
       throw new Error(`incrementCompletedBatches: concurrent modification on job ${jobId}`);
     }
   }
+}
+
+const LEASE_MS = Number(process.env.IDEMPOTENCY_REPLAY_STALE_MS ?? 30000);
+
+/**
+ * Atomically claim a job for processing.
+ * Transitions a job from 'queued' to 'processing', or reclaims a stranded job
+ * whose status is 'processing' but updatedAt is older than the lease duration.
+ * Returns true if the claim was successful, false otherwise.
+ */
+export function claimJobForProcessing(jobId: string): boolean {
+  const db = getDb();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const staleTimeIso = new Date(now.getTime() - LEASE_MS).toISOString();
+
+  const result = db.prepare(`
+    UPDATE jobs
+    SET status = 'processing',
+        updatedAt = ?,
+        version = version + 1
+    WHERE jobId = ? AND (
+      status = 'queued' OR
+      (status = 'processing' AND updatedAt < ?)
+    )
+  `).run(nowIso, jobId, staleTimeIso);
+
+  return result.changes > 0;
 }
 
 /**
