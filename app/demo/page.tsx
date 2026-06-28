@@ -350,7 +350,14 @@ export default function Home() {
         </div>
 
         {error && (
-          <div className="bg-destructive/10 border border-destructive text-destructive rounded-lg p-4 mb-6">
+          // role="alert" (aria-live="assertive" implicitly) so screen readers
+          // announce batch build / signing / parse failures the moment setError
+          // populates them, matching the convention used in ManualBatchEntry and
+          // ui/field.tsx (#569).
+          <div
+            role="alert"
+            className="bg-destructive/10 border border-destructive text-destructive rounded-lg p-4 mb-6"
+          >
             <p className="font-semibold">Error</p>
             <p className="text-sm mt-1">{error}</p>
           </div>
