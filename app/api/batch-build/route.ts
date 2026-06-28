@@ -154,8 +154,13 @@ export async function POST(request: NextRequest) {
       network === "testnet" ? Networks.TESTNET : Networks.PUBLIC;
 
     const xdrs: string[] = [];
-    // #396: collect indices of rows skipped due to per-row validation failure
+    // #396: collect indices of rows skipped due to per-row validation failure.
+    // #510: indices are the original 0-based positions in the request `payments`
+    // array (mirrored from the parser's `rowIndex`), so duplicate rows resolve
+    // to distinct positions instead of collapsing onto the first match.
     const omittedRows: number[] = [];
+    // #510: map each omitted index to its validation reason for actionable 422s.
+    const omittedReasons: Record<number, string> = {};
 
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
@@ -180,12 +185,21 @@ export async function POST(request: NextRequest) {
         networkPassphrase,
       }).addMemo(memo);
 
-      for (const payment of batch.payments) {
+      for (let pIdx = 0; pIdx < batch.payments.length; pIdx++) {
+        const payment = batch.payments[pIdx];
         const pv = validatePaymentInstruction(payment);
         if (!pv.valid) {
-          // #396: track omitted row indices instead of silently skipping
-          const originalIndex = payments.indexOf(payment);
+          // #510: prefer the parser-assigned rowIndex so duplicate rows (same
+          // address/amount/asset) map to the row that actually failed. indexOf
+          // returns the first value-equal match, misreporting which CSV line was
+          // skipped. Fall back to indexOf only for legacy payloads built without
+          // a rowIndex.
+          const originalIndex =
+            typeof payment.rowIndex === "number"
+              ? payment.rowIndex
+              : payments.indexOf(payment);
           omittedRows.push(originalIndex);
+          omittedReasons[originalIndex] = pv.error ?? "Failed per-row validation";
           continue;
         }
 
@@ -218,7 +232,10 @@ export async function POST(request: NextRequest) {
         NextResponse.json(
           {
             error: "Some payment rows failed per-row validation and were omitted.",
+            // #510: 0-based original row indices; duplicates resolve distinctly.
             omittedRows,
+            // #510: per-index reason so callers can surface exactly what to fix.
+            omittedReasons,
           },
           { status: 422 },
         ),
