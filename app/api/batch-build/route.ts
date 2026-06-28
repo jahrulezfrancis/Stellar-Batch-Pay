@@ -30,6 +30,7 @@ import { parseAsset } from "@/lib/stellar/utils";
 import {
   validatePaymentInstruction,
   validatePaymentInstructions,
+  validateMemo,
   buildBalancesMap,
   validateBalances,
 } from "@/lib/stellar/validator";
@@ -167,9 +168,21 @@ export async function POST(request: NextRequest) {
       let memo: any;
       if (firstMemoPayment?.memo) {
         const memoType = firstMemoPayment.memoType ?? 'text';
-        memo = memoType === 'id'
-          ? Memo.id(firstMemoPayment.memo)
-          : Memo.text(truncateMemoToBytes(firstMemoPayment.memo));
+        if (memoType === 'id') {
+          const memoValidation = validateMemo(firstMemoPayment.memo, 'id');
+          if (!memoValidation.valid) {
+            return setRateLimitHeaders(
+              NextResponse.json(
+                { error: `Invalid memo ID at batch ${i}: ${memoValidation.error}` },
+                { status: 400 },
+              ),
+              rate,
+            );
+          }
+          memo = Memo.id(firstMemoPayment.memo);
+        } else {
+          memo = Memo.text(truncateMemoToBytes(firstMemoPayment.memo));
+        }
       } else {
         const memoId = `bp-${Date.now()}-${i}`;
         memo = Memo.text(truncateMemoToBytes(memoId));

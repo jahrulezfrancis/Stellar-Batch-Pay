@@ -154,6 +154,28 @@ describe('Memo Validation', () => {
     expect(result.error).toContain('valid integer');
   });
 
+  // #554 — u64 boundary validation
+  test('accepts u64 max value (18446744073709551615)', () => {
+    const result = validateMemo('18446744073709551615', 'id');
+    expect(result.valid).toBe(true);
+  });
+
+  test('accepts u64 min value (0)', () => {
+    const result = validateMemo('0', 'id');
+    expect(result.valid).toBe(true);
+  });
+
+  test('rejects u64 max + 1 (18446744073709551616)', () => {
+    const result = validateMemo('18446744073709551616', 'id');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('64-bit');
+  });
+
+  test('rejects negative memo ID string', () => {
+    const result = validateMemo('-5', 'id');
+    expect(result.valid).toBe(false);
+  });
+
   test('validates memo type none', () => {
     const result = validateMemo('anything', 'none');
     expect(result.valid).toBe(true);
