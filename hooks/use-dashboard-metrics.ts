@@ -45,23 +45,22 @@ export function useDashboardMetrics(
 ) {
   const queryKey = dashboardMetricsKeys.detail(publicKey, network, range);
 
-  const { data: metrics, isLoading, error } = useQuery({
+  const { data: metrics, isLoading, error, refetch } = useQuery({
     queryKey,
     queryFn: () => fetchDashboardMetrics(publicKey!, network, range),
     enabled: !!publicKey,
     staleTime: 30 * 1000,
   });
 
-  const fallbackMetrics: DashboardMetrics = {
-    totalPayments: 0,
-    totalAmountSent: "0 XLM",
-    successRate: "0.0%",
-    activeBatches: 0,
-  };
-
   return {
-    metrics: metrics ?? fallbackMetrics,
+    metrics: metrics ?? {
+      totalPayments: 0,
+      totalAmountSent: "0 XLM",
+      successRate: "0.0%",
+      activeBatches: 0,
+    },
     loading: isLoading,
     error: error ? (error instanceof Error ? error.message : "Unknown error") : null,
+    refetch,
   };
 }
