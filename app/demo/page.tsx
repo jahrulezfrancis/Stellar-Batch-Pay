@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { FileUpload } from "@/components/file-upload";
 import { BatchSummary } from "@/components/batch-summary";
@@ -35,6 +36,8 @@ export default function Home() {
   const [validationResult, setValidationResult] = useState<ParsedPaymentFile | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+
+  const prefersReducedMotion = useReducedMotion();
 
   const [parsedCount, setParsedCount] = useState<number>(0);
 
@@ -391,7 +394,7 @@ export default function Home() {
           {state === "parsing" && (
             <div className="space-y-6">
               <div className="bg-card border border-border rounded-lg p-6 py-12 text-center">
-                <h2 className="text-xl font-semibold mb-4 text-primary animate-pulse">Parsing File...</h2>
+                <h2 className={`text-xl font-semibold mb-4 text-primary${prefersReducedMotion ? "" : " animate-pulse"}`}>Parsing File...</h2>
                 <div className="text-4xl font-mono mb-2">{parsedCount.toLocaleString()}</div>
                 <p className="text-sm text-muted-foreground">Rows processed</p>
               </div>
