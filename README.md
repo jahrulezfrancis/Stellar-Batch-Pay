@@ -279,6 +279,16 @@ For a detailed guide on architecture, local development setup, and contract deve
 bun install
 ```
 
+### Environment Variables
+
+Copy the example environment file and configure it for your setup:
+
+```bash
+cp .env.example .env
+```
+
+See `.env.example` for all available variables, including client-side (`NEXT_PUBLIC_*`) and server-only options.
+
 ### Using the Web Interface
 
 ```bash

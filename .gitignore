@@ -19,7 +19,13 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files
-.env*
+.env
+.env.local
+.env.production
+.env*.local
+
+# keep template in repo
+!.env.example
 
 # vercel
 .vercel

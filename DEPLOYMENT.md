@@ -15,6 +15,14 @@ Instructions for deploying the Stellar bulk payment system to production.
 
 ## Environment Setup
 
+A complete list of supported variables with defaults and descriptions is
+included in [`.env.example`](./.env.example). Copy it to `.env` and fill in
+your values.
+
+```bash
+cp .env.example .env
+```
+
 ### Required Environment Variables
 
 ```bash

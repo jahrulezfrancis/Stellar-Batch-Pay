@@ -36,7 +36,8 @@
     "test": "vitest run tests/",
     "test:e2e": "playwright test",
     "test:e2e:smoke": "playwright test smoke.spec.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "validate:env": "bun scripts/validate-env.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
