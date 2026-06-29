@@ -1,12 +1,10 @@
-'use client';
+"use client";
 
-import Image from "next/image";
-import { Globe, Lock } from "lucide-react";
-import securityoption from "@/public/securityoption.png";
+import { Globe, Lock, Shield } from "lucide-react";
 
 const features = [
   {
-    type: "image" as const,
+    type: "shield" as const,
     text: "Bank-grade security & encryption",
   },
   {
@@ -19,17 +17,11 @@ const features = [
   },
 ];
 
-function FeatureIcon({ type }: { type: "image" | "globe" | "lock" }) {
+function FeatureIcon({ type }: { type: "shield" | "globe" | "lock" }) {
   return (
     <span className="flex-shrink-0 w-10 h-10 rounded-full bg-[#22C55E33] flex items-center justify-center">
-      {type === "image" && (
-        <Image
-          src={securityoption}
-          alt="Security"
-          width={20}
-          height={20}
-          className="brightness-0 invert"
-        />
+      {type === "shield" && (
+        <Shield size={18} className="text-white" strokeWidth={2.5} />
       )}
       {type === "globe" && (
         <Globe size={18} className="text-white" strokeWidth={2.5} />

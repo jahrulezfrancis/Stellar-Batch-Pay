@@ -98,7 +98,7 @@ A Soroban smart contract for time-locked distribution:
 ### Quick Steps
 
 1. **Start the application:**
-   ```
+   ```bash
    npm run dev
    ```
    Then open http://localhost:3000 in your browser
@@ -276,90 +276,47 @@ For a detailed guide on architecture, local development setup, and contract deve
 ### Installation
 
 ```bash
-npm install
+bun install
 ```
 
 ### Using the Web Interface
 
 ```bash
-npm run dev
+bun run dev
 # Open http://localhost:3000
 ```
 
 ### Using the Command Line
 
+Run the CLI using Bun (the project's standard engine for TS scripts):
+
 ```bash
-STELLAR_SECRET_KEY="S..." npm run start -- --input payments.json --network testnet
+STELLAR_SECRET_KEY="S..." bun run cli -- <command> [flags]
 ```
 
-### Architecture
-
-```
-lib/stellar/
-├── types.ts           # Data structure definitions
-├── validator.ts       # Checks all inputs are valid
-├── parser.ts          # Reads CSV and JSON files
-├── batcher.ts         # Groups payments into batches
-├── server.ts          # Connects to Stellar and sends payments
-└── index.ts           # Exports public functions
-
-contracts/
-└── batch-vesting/
-    └── src/lib.rs     # Soroban batch vesting contract (deposit + claim)
-
-app/
-├── page.tsx           # Main web page
-└── api/batch-submit/  # Backend API endpoint
-
-components/
-├── file-upload.tsx    # Upload file interface
-├── batch-summary.tsx  # Preview before sending
-└── results-display.tsx# Show results after sending
+For example, to validate a payment instructions file:
+```bash
+bun run cli -- validate --input examples/payments.json
 ```
 
-### API
-
-The main batch submission endpoint accepts an optional `Idempotency-Key` header.
-
-```http
-POST /api/batch-submit
-Content-Type: application/json
-Idempotency-Key: <stable-request-key>
+Or run CLI scripts directly with Bun:
+```bash
+STELLAR_SECRET_KEY="S..." bun cli/index.ts submit --input examples/payments.json --network testnet
 ```
 
-If the same key is replayed with the same request body within 24 hours, the API returns the original `202` response and reuses the same `jobId`. If the same key is reused with a different body, the API returns `409 Conflict`.
+### Programmatic Imports
 
-This is especially useful for retry-safe payroll submissions where a browser refresh, double-click, or proxy retry should not enqueue a second payout job.
+The package exports a public TypeScript/ESM API from the root.
 
-### Key Functions
-
-**Validate payments:**
 ```typescript
-import { validatePaymentInstructions } from '@/lib/stellar';
+import { validatePaymentInstructions, parsePaymentFile } from 'stellar-batch-pay';
 
-const errors = validatePaymentInstructions(paymentList);
-if (errors.length > 0) {
-  console.log('Problems found:', errors);
-}
+const results = validatePaymentInstructions(payments);
 ```
 
-**Parse files:**
+For server-side ONLY services:
 ```typescript
-import { parseInput } from '@/lib/stellar';
-
-const payments = await parseInput(fileContent, 'csv');
-```
-
-**Submit batch (server-side only):**
-```typescript
-import { StellarService } from '@/lib/stellar/server';
-
-const service = new StellarService({
-  secretKey: process.env.STELLAR_SECRET_KEY,
-  network: 'testnet'
-});
-
-const results = await service.submitBatch(payments);
+import { StellarService } from 'stellar-batch-pay/lib/stellar/server.js';
 ```
 
 ---

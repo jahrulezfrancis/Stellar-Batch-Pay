@@ -8,9 +8,10 @@
  * The client falls back to polling /api/batch-status/:jobId if SSE is unavailable.
  */
 
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { StrKey } from "stellar-sdk";
 import { getJob } from "@/lib/job-store";
+import { applyRateLimit } from "@/lib/api-rate-limit";
 
 interface RouteParams {
   params: Promise<{ jobId: string }>;
@@ -36,20 +37,23 @@ function serializeJobEvent(job: ReturnType<typeof getJob>): string {
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
+  const rate = applyRateLimit(request, "batch-events");
+  if (rate.blocked) return rate.response!;
+
   const { jobId } = await params;
   const publicKey = request.nextUrl.searchParams.get("publicKey");
 
   if (!jobId) {
     return new Response(JSON.stringify({ error: "Missing jobId parameter" }), {
       status: 400,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-RateLimit-Remaining": String(rate.remaining), "X-RateLimit-Limit": String(rate.limit), "X-RateLimit-Reset": String(rate.resetAt) },
     });
   }
 
   if (!publicKey || !StrKey.isValidEd25519PublicKey(publicKey)) {
     return new Response(
       JSON.stringify({ error: "A valid publicKey query parameter is required" }),
-      { status: 400, headers: { "Content-Type": "application/json" } },
+      { status: 400, headers: { "Content-Type": "application/json", "X-RateLimit-Remaining": String(rate.remaining), "X-RateLimit-Limit": String(rate.limit), "X-RateLimit-Reset": String(rate.resetAt) } },
     );
   }
 

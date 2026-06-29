@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, test } from 'vitest';
-import { parseArgs, run } from '../cli/index';
+import { parseArgs, run } from '../cli/index.js';
 
 describe('CLI argv parser', () => {
   test('returns help=true when invoked with no args', () => {

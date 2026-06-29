@@ -9,12 +9,14 @@
  *                    to the untyped `index.cjs`.  TODO: remove once the zod
  *                    package ships a proper root declaration.
  *
- *   - @aws-sdk/client-secrets-manager — an optional runtime dependency used
- *                    only in `lib/secrets/aws-backend.ts` via a dynamic import.
- *                    The package is not installed in this project; the ambient
- *                    declaration silences TS2307 without breaking type safety
- *                    elsewhere.  TODO: `bun add @aws-sdk/client-secrets-manager`
- *                    when AWS secrets support is activated.
+ *   - @aws-sdk/client-secrets-manager — now declared as an optionalDependency
+ *                    in package.json (#595). The ambient stub below is retained
+ *                    as a fallback for environments where the package is not
+ *                    installed; `lib/secrets/aws-backend.ts` wraps the dynamic
+ *                    import in a try/catch so a missing package fails at runtime
+ *                    with a clear install message rather than at compile time.
+ *                    Remove this stub once the package is pinned as a regular
+ *                    dependency.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -42,6 +44,9 @@ declare module 'zod' {
   export const ZodError: any;
 }
 
+// Fallback stub — only active when the optional package is not installed.
+// When `bun add @aws-sdk/client-secrets-manager` is run, the package's own
+// declarations take precedence and this stub becomes unreachable.
 declare module '@aws-sdk/client-secrets-manager' {
   export class SecretsManagerClient {
     constructor(config: { region: string });

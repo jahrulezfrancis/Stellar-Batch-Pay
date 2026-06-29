@@ -11,13 +11,16 @@
  *   search    – substring match on jobId, payments JSON, or result JSON
  *   from      – ISO timestamp; include jobs with createdAt >= from
  *   to        – ISO timestamp; include jobs with createdAt <= to
+ *   includeSummary – when true, include aggregate metrics for the full filtered set
+ *   sort      – column to sort by: createdAt (default), updatedAt, status
+ *   order     – sort direction: desc (default) or asc
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { StrKey } from "stellar-sdk";
-import { getAllJobs, countJobs } from "@/lib/job-store";
+import { getAllJobs, countJobs, getBatchHistorySummary } from "@/lib/job-store";
 import { safeJsonResponse } from "@/lib/safe-json";
-import type { JobStatus } from "@/lib/stellar/types";
+import type { JobStatus, BatchJobNetwork } from "@/lib/stellar/types";
 
 function parseIsoTimestamp(value: string | null): string | undefined {
   if (!value) return undefined;
@@ -39,6 +42,9 @@ export async function GET(request: NextRequest) {
   const search     = searchParams.get("search")?.trim() || undefined;
   const from       = parseIsoTimestamp(searchParams.get("from"));
   const to         = parseIsoTimestamp(searchParams.get("to"));
+  const includeSummary = searchParams.get("includeSummary") === "true";
+  const sort       = searchParams.get("sort") as "createdAt" | "updatedAt" | "status" | null;
+  const order      = searchParams.get("order") as "asc" | "desc" | null;
 
   if (!publicKey || !StrKey.isValidEd25519PublicKey(publicKey)) {
     return NextResponse.json(
@@ -49,15 +55,30 @@ export async function GET(request: NextRequest) {
 
   const validStatuses: JobStatus[] = ["queued", "processing", "completed", "failed"];
   const status  = validStatuses.includes(rawStatus as JobStatus) ? (rawStatus as JobStatus) : undefined;
-  const network = rawNetwork === "testnet" || rawNetwork === "mainnet" ? rawNetwork : undefined;
+  const network: BatchJobNetwork | undefined =
+    rawNetwork === "testnet" || rawNetwork === "mainnet" ? rawNetwork : undefined;
 
   try {
-    const filters = { status, network, publicKey, search, from, to };
+    const filters = { status, network, publicKey, search, from, to, sort: sort ?? undefined, order: order ?? undefined };
 
     const [jobs, total] = [
       getAllJobs({ limit, offset, ...filters }),
       countJobs(filters),
     ];
+
+    const summary = includeSummary
+      ? (() => {
+          const stats = getBatchHistorySummary(filters);
+          return {
+            totalJobs: stats.totalJobs,
+            totalPayments: stats.totalPayments,
+            totalAmount: `${stats.totalAmount.toFixed(2)} XLM`,
+            successRate: stats.successRate,
+            failedJobs: stats.failedJobs,
+            failedPayments: stats.failedPayments,
+          };
+        })()
+      : undefined;
 
     // Strip the full payments array from the list response to keep payloads small.
     // Callers that need the full payment list should use GET /api/batch-status/:jobId.
@@ -77,6 +98,18 @@ export async function GET(request: NextRequest) {
 
     return safeJsonResponse({
       items,
+      summary,
+      // Backward-compatible alias for legacy clients.
+      aggregateMetrics: summary
+        ? {
+            totalBatches: summary.totalJobs,
+            totalPayments: summary.totalPayments,
+            successRate: summary.successRate,
+            totalVolume: summary.totalAmount,
+            failedJobs: summary.failedJobs,
+            failedPayments: summary.failedPayments,
+          }
+        : undefined,
       pagination: {
         page,
         limit,

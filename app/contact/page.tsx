@@ -1,11 +1,12 @@
 import { Navbar } from "@/components/landing/navbar";
 import { ContactForm } from "@/components/contact/ContactForm";
 import { SupportCards } from "@/components/contact/SupportCards";
+import { makePageMetadata } from "@/lib/seo";
 
-export const metadata = {
-  title: "Contact Us - Stellar BatchPay",
-  description: "Get in touch with the Stellar BatchPay team.",
-};
+export const metadata = makePageMetadata(
+  "Contact",
+  "Get in touch with the Stellar BatchPay team for support, product questions, or partnership inquiries.",
+);
 
 export default function ContactPage() {
   return (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { FileUpload } from "@/components/file-upload";
 import { BatchSummary } from "@/components/batch-summary";
@@ -35,6 +36,8 @@ export default function Home() {
   const [validationResult, setValidationResult] = useState<ParsedPaymentFile | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+
+  const prefersReducedMotion = useReducedMotion();
 
   const [parsedCount, setParsedCount] = useState<number>(0);
 
@@ -330,7 +333,7 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main id="main-content" className="min-h-screen bg-background text-foreground">
       <Navbar />
       <div className="max-w-2xl mx-auto px-4 py-8">
         <div className="mb-8">
@@ -350,13 +353,28 @@ export default function Home() {
         </div>
 
         {error && (
-          <div className="bg-destructive/10 border border-destructive text-destructive rounded-lg p-4 mb-6">
+          // role="alert" (aria-live="assertive" implicitly) so screen readers
+          // announce batch build / signing / parse failures the moment setError
+          // populates them, matching the convention used in ManualBatchEntry and
+          // ui/field.tsx (#569).
+          <div
+            role="alert"
+            className="bg-destructive/10 border border-destructive text-destructive rounded-lg p-4 mb-6"
+          >
             <p className="font-semibold">Error</p>
             <p className="text-sm mt-1">{error}</p>
           </div>
         )}
 
-        <BatchErrorBoundary storageKey="demo_batch_payments" onRestore={handleRestore}>
+        <BatchErrorBoundary
+          storageKey="demo_batch_payments"
+          onRestore={handleRestore}
+          validate={(parsed) =>
+            Array.isArray(parsed) &&
+            parsed.length > 0 &&
+            parsed.every((p) => p !== null && typeof p === "object")
+          }
+        >
           {/* ── Upload ────────────────────────────────────────────────── */}
           {state === "upload" && (
             <div className="space-y-6">
@@ -376,7 +394,7 @@ export default function Home() {
           {state === "parsing" && (
             <div className="space-y-6">
               <div className="bg-card border border-border rounded-lg p-6 py-12 text-center">
-                <h2 className="text-xl font-semibold mb-4 text-primary animate-pulse">Parsing File...</h2>
+                <h2 className={`text-xl font-semibold mb-4 text-primary${prefersReducedMotion ? "" : " animate-pulse"}`}>Parsing File...</h2>
                 <div className="text-4xl font-mono mb-2">{parsedCount.toLocaleString()}</div>
                 <p className="text-sm text-muted-foreground">Rows processed</p>
               </div>

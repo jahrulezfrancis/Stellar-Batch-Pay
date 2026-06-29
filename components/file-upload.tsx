@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { toast } from '@/components/ui/use-toast';
+import { toast } from '@/lib/toast';
 import { parsePaymentFile } from '@/lib/stellar/parser';
 import type { ParsedPaymentFile } from '@/lib/stellar/types';
 
@@ -47,7 +47,7 @@ export function FileUpload({ onFileSelect, onValidationResult, disabled }: FileU
 
     const ext = file.name.toLowerCase().split('.').pop();
     if (!['json', 'csv'].includes(ext || '')) {
-      toast({
+      toast.custom({
         title: "Invalid file type",
         description: "Please select a JSON or CSV file",
         variant: "destructive",
@@ -67,7 +67,7 @@ export function FileUpload({ onFileSelect, onValidationResult, disabled }: FileU
 
     const ext = file.name.toLowerCase().split('.').pop();
     if (!['json', 'csv'].includes(ext || '')) {
-      toast({
+      toast.custom({
         title: "Invalid file type",
         description: "Please select a JSON or CSV file",
         variant: "destructive",
@@ -81,6 +81,13 @@ export function FileUpload({ onFileSelect, onValidationResult, disabled }: FileU
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      fileInputRef.current?.click();
+    }
   };
 
   return (
@@ -103,6 +110,7 @@ export function FileUpload({ onFileSelect, onValidationResult, disabled }: FileU
       </div>
       <input
         ref={fileInputRef}
+        id="file-upload-input"
         type="file"
         accept=".json,.csv"
         onChange={handleFileChange}
@@ -112,7 +120,12 @@ export function FileUpload({ onFileSelect, onValidationResult, disabled }: FileU
       <div
         onDrop={handleDrop}
         onDragOver={handleDragOver}
-        className="border-2 border-dashed border-slate-700 rounded-lg p-6 text-center cursor-pointer hover:border-emerald-500 hover:bg-slate-950/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-label="Upload file"
+        aria-describedby="file-format-requirements"
+        className="border-2 border-dashed border-slate-700 rounded-lg p-6 text-center cursor-pointer hover:border-emerald-500 hover:bg-slate-950/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900"
         onClick={() => fileInputRef.current?.click()}
       >
         <p className="text-slate-300 mb-2">
@@ -133,7 +146,7 @@ export function FileUpload({ onFileSelect, onValidationResult, disabled }: FileU
         <p className="text-xs text-slate-500 mt-2">Supported: JSON or CSV</p>
       </div>
       <div className="mt-4">
-        <details className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 text-sm">
+        <details id="file-format-requirements" className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 text-sm">
           <summary className="cursor-pointer font-semibold text-slate-300">
             File Format Requirements
           </summary>

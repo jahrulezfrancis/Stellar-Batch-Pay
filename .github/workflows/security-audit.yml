@@ -1,0 +1,106 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly audit on Monday 06:00 UTC against main, even when no PRs land.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: security-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  npm-audit:
+    name: npm audit (high/critical)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Run npm audit (fail on high/critical)
+        id: audit
+        run: npm audit --audit-level=high --omit=dev
+
+      - name: Open tracking issue on scheduled failure
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Security audit failed on ${new Date().toISOString().slice(0, 10)}`;
+            const body = [
+              `The scheduled \`npm audit --audit-level=high\` run failed on \`main\`.`,
+              ``,
+              `Workflow run: ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+              ``,
+              `Triage steps:`,
+              `1. Reproduce locally: \`bun install && npm audit --audit-level=high\`.`,
+              `2. Identify the advisory and affected package.`,
+              `3. Bump the offending package or pin a patched version.`,
+            ].join("\n");
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: "security-audit",
+            });
+            if (existing.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ["security-audit", "security"],
+              });
+            }
+
+  cargo-audit:
+    name: cargo audit (batch-vesting)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            contracts/target
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-audit-
+
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit || true
+
+      - name: Run cargo audit
+        working-directory: contracts
+        run: cargo audit --deny warnings

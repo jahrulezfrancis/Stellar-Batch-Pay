@@ -59,6 +59,32 @@ The project follows a clean layered architecture with clear separation of concer
 - Manages sequence numbers and error handling
 - Returns structured results
 
+## Motion vocabulary
+
+Dashboard and marketing UI share `MotionSafe` (`components/motion-safe.tsx`),
+which disables Framer Motion when `prefers-reduced-motion` is set.
+
+Presets live in `lib/motion-tokens.ts`:
+
+| Preset | Use |
+|--------|-----|
+| `pageEnter` | Dashboard page shells (history, batch detail) |
+| `stepEnter` | New-batch wizard steps |
+| `fadeInUpMedium` | Metric cards and staggered grids |
+| `motionCssDuration` | Tailwind `transition-all` durations aligned with tokens |
+
+Prefer spreading a preset onto `MotionSafe` instead of ad hoc `animate-in`
+utilities or raw `motion.div` on data-heavy routes. Utilitarian tables can
+omit entrance animation entirely.
+
+## Accessibility: bypass blocks
+
+Use a "Skip to main content" link as the first focusable control in layouts
+that introduce repeated navigation/UI chrome. The target landmark should be a
+stable `<main id="main-content">` on the rendered page shell (for example,
+dashboard and primary marketing/demo routes), so keyboard and assistive
+technology users can bypass sidebars/headers quickly (WCAG 2.4.1).
+
 ## Key Design Decisions
 
 ### 1. No ORM or Additional Abstraction
@@ -95,6 +121,8 @@ If you need special handling for a specific asset:
 4. Add tests in `tests/`
 
 > **Important — server-side signing:** `StellarService` in `server.ts` (used by `/api/batch-submit` with `STELLAR_SECRET_KEY`) builds payment operations by calling `parseAsset` from `lib/stellar/utils.ts`. This shared parser handles `"XLM"`, `"native"`, and `"CODE:ISSUER"` strings. Do **not** introduce a local `parseAsset` in `server.ts`; doing so will break issued-asset batches (USDC, etc.) on the server-submit path.
+
+> **Local server-signing tests:** To test the `/api/batch-submit` or `/api/batch-retry` server-signing path locally, set `ALLOW_SERVER_SIGNING=true` alongside `STELLAR_SECRET_KEY`. Without this flag the routes return 403. The test suite (`tests/batch-submit.test.ts`) sets this flag automatically. See DEPLOYMENT.md for full security guidance before enabling in any deployed environment.
 
 ### Adding Rate Limiting
 
@@ -142,11 +170,53 @@ To work on the Soroban smart contracts, you need:
 
 We use the [Stellar Quickstart](https://github.com/stellar/docker-stellar-quickstart) Docker image to run a local network with Soroban RPC enabled.
 
-1. **Start the local node**:
+1. **Start the full stack** (Stellar node + Next.js app):
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
-   This starts a standalone network with Horizon on port `8000` and Soroban RPC on port `8001`.
+   This starts both the Stellar quickstart node and the Next.js app:
+   - Horizon on port `8000`
+   - Soroban RPC on port `8001`
+   - Next.js app on port `3000`
+
+   To run only the Stellar node (e.g. during active development with `npm run dev`):
+   ```bash
+   docker compose up -d stellar
+   ```
+
+   The `stellar/quickstart` image is pinned to a specific release tag in
+   `docker-compose.yml` rather than `latest`, so a fresh clone produces the
+   same Horizon/Soroban RPC versions on every machine. Do not change the
+   pin without following the upgrade procedure below.
+
+### Updating the stellar/quickstart pin
+
+The `image:` line in `docker-compose.yml` references a versioned
+`stellar/quickstart` tag (e.g. `stellar/quickstart:23.0.6-2304`). Rotate
+it deliberately — a wrong pin can break contract deploys and friendbot.
+
+1. Pick a candidate tag from
+   [Docker Hub](https://hub.docker.com/r/stellar/quickstart/tags). Prefer
+   release-style tags (`<major>.<minor>.<patch>-<build>`) over rolling
+   ones like `latest`, `testing`, or `future`.
+2. (Optional, recommended) Resolve the tag to an immutable digest:
+   ```bash
+   docker pull stellar/quickstart:<tag>
+   docker inspect --format='{{index .RepoDigests 0}}' stellar/quickstart:<tag>
+   ```
+   Use the resulting `stellar/quickstart@sha256:...` form in
+   `docker-compose.yml` for full reproducibility.
+3. Smoke-test the new image locally:
+   ```bash
+   docker compose down -v
+   docker compose up -d
+   ./scripts/deploy-contract.sh local alice
+   cargo test --manifest-path contracts/Cargo.toml
+   ```
+4. Update any CI workflow that boots the quickstart image so it
+   references the same pin.
+5. Open a PR with the version bump and a one-line release note in the
+   description (link to the upstream changelog).
 
 2. **Configure Stellar CLI for Local**:
    ```bash
@@ -189,7 +259,7 @@ Use the provided script to deploy to your local node:
 #### Deploy to Testnet
 1. **Configure Testnet**:
    ```bash
-   stellar network add --rpc-url https://soroban-testnet.stellar.org:443 --network-passphrase "Test SDF Test Network ; September 2015" testnet
+   stellar network add --rpc-url https://soroban-testnet.stellar.org:443 --network-passphrase "Test SDF Network ; September 2015" testnet
    ```
 2. **Generate/Add Testnet Account**:
    ```bash
@@ -219,6 +289,37 @@ The contract uses Soroban's standard upgradeability pattern. Upgrades are gated 
 **Events for Auditability**:
 - `UpgradeProposed(new_wasm_hash, execute_at)`
 - `UpgradeExecuted(new_wasm_hash)`
+
+## React Query Provider
+
+A single `QueryClientProvider` wraps the entire application tree in the root
+`app/layout.tsx` via the `QueryProvider` component (`components/query-provider.tsx`).
+No other layout or page component should nest a second `QueryClientProvider` or
+create a separate `QueryClient` instance — nested providers create independent
+caches, breaking `invalidateQueries` across the app and causing duplicate network
+fetches for the same query key.
+
+- Default `staleTime` is 30 000 ms, retry count is 1, and `refetchOnWindowFocus`
+  is disabled (see `components/query-provider.tsx`).
+- Dashboard routes (wrapped by `DashboardLayout` in `components/dashboard-layout.tsx`)
+  rely on the root provider; do not reintroduce a second provider there.
+- All `useQuery`, `useMutation`, and `invalidateQueries` calls share the same
+  `QueryClient` instance and cache namespace.
+
+### Query keys
+
+Query keys come from the central factory in `lib/query-keys.ts` — do not write
+raw string-literal keys in hooks or components. The hierarchy is parent → child:
+
+- `batchHistoryKeys.all(publicKey)` → `["batch-history", publicKey]` (parent)
+- `batchHistoryKeys.list(publicKey, …filters)` → `["batch-history", publicKey, …filters]` (children: pagination/filter/sort)
+- `dashboardMetricsKeys.all(publicKey)` / `dashboardMetricsKeys.detail(publicKey, network, range)`
+
+TanStack Query matches partially by default (`exact: false`), so **invalidate via
+the `.all(publicKey)` parent** to refetch every paginated/filtered child list.
+Batch history and dashboard metrics are separate namespaces: when a batch
+completes, invalidate **both** parents (see `contexts/BatchFlowContext.tsx`) so the
+recent table, the history page, and the metric cards all refresh.
 
 ## Testing Strategy
 
@@ -255,9 +356,16 @@ const result = await service.submitBatch(payments);
 
 1. **CLI Testing**:
    ```bash
-   STELLAR_SECRET_KEY="..." node cli/index.ts \
-     --input examples/payments.json \
-     --network testnet
+    # The canonical CLI entry point is cli/index.ts (the package.json bin target).
+    # Use `bun run cli` or the global `stellar-batch-pay` bin:
+    STELLAR_SECRET_KEY="..." bun run cli submit \
+      examples/payments.json \
+      --network testnet
+
+    # Alternatively invoke the bin directly with bun:
+    STELLAR_SECRET_KEY="..." bun cli/index.ts submit \
+      examples/payments.json \
+      --network testnet
    ```
 
 2. **Web UI Testing**:
@@ -272,6 +380,64 @@ const result = await service.submitBatch(payments);
    - Fund it with test lumens
    - Run against testnet
    - Verify transactions on https://stellar.expert/explorer/testnet
+
+## Real-time Batch Progress (SSE)
+
+Batch progress is streamed over Server-Sent Events from:
+
+```text
+GET /api/batch-events/:jobId?publicKey=<stellar-public-key>
+```
+
+The `publicKey` query parameter is required and must be a valid Stellar public
+key. It scopes the lookup to the submitting account so clients cannot subscribe
+to unrelated batch jobs.
+
+Each event is sent as a standard `data:` frame containing JSON shaped like:
+
+```json
+{
+  "jobId": "job_123",
+  "status": "processing",
+  "totalBatches": 3,
+  "completedBatches": 1,
+  "totalPayments": 250,
+  "network": "testnet",
+  "createdAt": "2026-06-24T12:00:00.000Z",
+  "updatedAt": "2026-06-24T12:00:03.000Z",
+  "result": null,
+  "error": null
+}
+```
+
+The stream sends an immediate update, then refreshes every second until the job
+reaches a terminal `completed` or `failed` state. The response uses
+`text/event-stream`, `Cache-Control: no-cache, no-transform`, and
+`X-Accel-Buffering: no` so reverse proxies do not buffer live progress frames.
+
+Browser clients should prefer `EventSource`:
+
+```typescript
+const params = new URLSearchParams({ publicKey });
+const events = new EventSource(`/api/batch-events/${jobId}?${params}`);
+
+events.onmessage = (event) => {
+  const job = JSON.parse(event.data);
+  if (job.status === "completed" || job.status === "failed") {
+    events.close();
+  }
+};
+```
+
+`hooks/use-batch-polling.ts` uses this SSE endpoint first. If `EventSource` is
+unavailable or the initial connection fails, it falls back to polling:
+
+```text
+GET /api/batch-status/:jobId?publicKey=<stellar-public-key>
+```
+
+The polling fallback starts at 2 seconds and backs off up to 30 seconds between
+attempts.
 
 ## Code Quality Guidelines
 
@@ -447,8 +613,14 @@ Batch is too large for single transaction:
 ## Future Improvements
 
 1. **Event Sourcing**: Store all actions for audit trail
-2. **WebSocket Support**: Real-time progress updates
+2. **Realtime Transport Hardening**: Add deployment-specific checks for SSE proxy buffering and timeout behavior
 3. **GraphQL API**: More flexible querying
 4. **Multi-language SDKs**: Python, Go, Rust versions
 5. **Scheduler**: Automated batch submissions at intervals
 6. **Analytics Dashboard**: Track batch history and metrics
+
+## Migration Notes
+
+### Legacy Idempotency Helpers Removed
+
+The legacy idempotency helpers `getJobIdByIdempotencyKey` and `storeIdempotencyKey` have been removed from `lib/job-store.ts` as they queried the outdated SQLite column `key` instead of the modern schema layout which supports request hashing and expiration. All new paths use `createIdempotentJob`.

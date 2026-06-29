@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Bell } from "lucide-react";
+import { t } from "@/lib/i18n";
 
 export function NotificationsCard() {
   const [batchSuccess, setBatchSuccess] = useState(true);
@@ -19,22 +20,22 @@ export function NotificationsCard() {
   const notifications = [
     {
       id: "batch-success",
-      label: "Batch Success",
-      description: "Payment batch completed",
+      label: t("settings.batchSuccess"),
+      description: t("settings.batchSuccessDescription"),
       checked: batchSuccess,
       onChange: setBatchSuccess,
     },
     {
       id: "failed-payments",
-      label: "Failed Payments",
-      description: "Payment failures",
+      label: t("settings.failedPayments"),
+      description: t("settings.failedPaymentsDescription"),
       checked: failedPayments,
       onChange: setFailedPayments,
     },
     {
       id: "email-alerts",
-      label: "Email Alerts",
-      description: "Receive email notifications",
+      label: t("settings.emailAlerts"),
+      description: t("settings.emailAlertsDescription"),
       checked: emailAlerts,
       onChange: setEmailAlerts,
     },
@@ -48,9 +49,9 @@ export function NotificationsCard() {
             <Bell className="w-6 h-6 text-emerald-500" />
           </div>
           <div className="flex-1">
-            <CardTitle className="text-2xl text-white">Notifications</CardTitle>
+            <CardTitle className="text-2xl text-white">{t("settings.notificationsTitle")}</CardTitle>
             <CardDescription className="text-slate-400">
-              Manage notification preferences
+              {t("settings.notificationsDescription")}
             </CardDescription>
           </div>
         </div>

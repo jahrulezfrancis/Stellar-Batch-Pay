@@ -12,6 +12,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "."),
+      "../cli/index.js": path.resolve(__dirname, "cli/index.ts"),
+      // cli/index.mjs has been removed; canonical source is cli/index.ts (#599)
     },
   },
 });

@@ -1,6 +1,12 @@
 import { CreateAccountNavbar } from "@/components/create-account/CreateAccountNavbar";
 import MarketingSection from "@/components/create-account/MarketingSection";
 import RegistrationForm from "@/components/create-account/RegistrationForm";
+import { makePageMetadata } from "@/lib/seo";
+
+export const metadata = makePageMetadata(
+  "Create Account",
+  "Create your Stellar BatchPay workspace and start sending batch payments with a wallet-first onboarding flow.",
+);
 
 export default function RegisterPage() {
   return (

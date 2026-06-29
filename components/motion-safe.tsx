@@ -7,19 +7,17 @@ import {
 } from "framer-motion";
 import type { ElementType } from "react";
 
-type MotionTag = keyof typeof motion;
-
-type MotionSafeProps<T extends MotionTag = "div"> = HTMLMotionProps<T> & {
-  as?: T;
+type MotionSafeProps = HTMLMotionProps<"div"> & {
+  as?: keyof typeof motion;
 };
 
-export function MotionSafe<T extends MotionTag = "div">({
+export function MotionSafe({
   as,
   children,
   ...props
-}: MotionSafeProps<T>) {
+}: MotionSafeProps) {
   const reduceMotion = useReducedMotion();
-  const tag = (as ?? "div") as MotionTag;
+  const tag = as ?? "div";
 
   if (reduceMotion) {
     const {
@@ -38,6 +36,6 @@ export function MotionSafe<T extends MotionTag = "div">({
     return <StaticTag {...rest}>{children}</StaticTag>;
   }
 
-  const MotionTag = motion[tag];
-  return <MotionTag {...props}>{children}</MotionTag>;
+  const MotionComponent = motion[tag] as ElementType;
+  return <MotionComponent {...props}>{children}</MotionComponent>;
 }

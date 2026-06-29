@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Code2, Eye, EyeOff, Copy, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { t } from "@/lib/i18n";
 
 const MASKED_KEY = "stellar_live_••••••••••••••7×9K";
 const FULL_KEY = "stellar_live_abc123xyz456def789ghi012jkl7x9K";
@@ -41,8 +42,8 @@ export function ApiDeveloperCard() {
   const handleCopy = () => {
     navigator.clipboard.writeText(apiKey);
     toast({
-      title: "API key copied",
-      description: "Key copied to clipboard.",
+      title: t("settings.apiKeyCopiedTitle"),
+      description: t("settings.apiKeyCopiedDescription"),
     });
   };
 
@@ -59,21 +60,21 @@ export function ApiDeveloperCard() {
         day: "numeric",
         year: "numeric",
       }),
-      lastUsed: "Just now",
+      lastUsed: t("settings.justNow"),
     });
     setKeyVisible(false);
     setGenerateOpen(false);
     toast({
-      title: "New API key generated",
-      description: "Your previous key has been replaced.",
+      title: t("settings.newApiKeyGeneratedTitle"),
+      description: t("settings.newApiKeyGeneratedDescription"),
     });
   };
 
   const handleRevoke = () => {
     setRevokeOpen(false);
     toast({
-      title: "API key revoked",
-      description: "Your API key has been permanently revoked.",
+      title: t("settings.apiKeyRevokedTitle"),
+      description: t("settings.apiKeyRevokedDescription"),
       variant: "destructive",
     });
   };
@@ -88,10 +89,10 @@ export function ApiDeveloperCard() {
             </div>
             <div className="flex-1">
               <CardTitle className="text-2xl text-white">
-                API &amp; Developer
+                {t("settings.apiDeveloperTitle")}
               </CardTitle>
               <CardDescription className="text-slate-400">
-                Manage API keys and integrations
+                {t("settings.apiDeveloperDescription")}
               </CardDescription>
             </div>
           </div>
@@ -103,7 +104,7 @@ export function ApiDeveloperCard() {
             <div className="flex items-center justify-between gap-3">
               <div className="space-y-0.5 min-w-0">
                 <div className="text-sm text-white font-medium">
-                  Production API Key
+                  {t("settings.productionApiKey")}
                 </div>
                 <div className="text-sm font-mono text-slate-400 truncate">
                   {displayKey}
@@ -115,7 +116,7 @@ export function ApiDeveloperCard() {
                   size="sm"
                   onClick={() => setKeyVisible((v) => !v)}
                   className="h-8 w-8 p-0 hover:bg-slate-800 text-slate-400 hover:text-white"
-                  aria-label={keyVisible ? "Hide API key" : "Show API key"}
+                  aria-label={keyVisible ? t("settings.hideApiKey") : t("settings.showApiKey")}
                 >
                   {keyVisible ? (
                     <EyeOff className="w-4 h-4" />
@@ -128,16 +129,16 @@ export function ApiDeveloperCard() {
                   size="sm"
                   onClick={handleCopy}
                   className="h-8 w-8 p-0 hover:bg-slate-800 text-slate-400 hover:text-white"
-                  aria-label="Copy API key"
+                  aria-label={t("settings.copyApiKey")}
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
               </div>
             </div>
             <div className="flex items-center gap-3 text-xs text-slate-500">
-              <span>Created: {keyMeta.created}</span>
+              <span>{t("settings.created", { date: keyMeta.created })}</span>
               <span className="w-1 h-1 rounded-full bg-slate-600" />
-              <span>Last used: {keyMeta.lastUsed}</span>
+              <span>{t("settings.lastUsed", { time: keyMeta.lastUsed })}</span>
             </div>
           </div>
 
@@ -147,13 +148,13 @@ export function ApiDeveloperCard() {
               onClick={() => setGenerateOpen(true)}
               className="bg-emerald-500 hover:bg-emerald-600 text-white font-medium"
             >
-              Generate New Key
+              {t("settings.generateNewKey")}
             </Button>
             <Button
               onClick={() => setRevokeOpen(true)}
               className="bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-white font-medium"
             >
-              Revoke Key
+              {t("settings.revokeKey")}
             </Button>
           </div>
 
@@ -166,7 +167,7 @@ export function ApiDeveloperCard() {
               className="inline-flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              View API Documentation
+              {t("settings.viewApiDocumentation")}
             </a>
           </div>
         </CardContent>
@@ -176,15 +177,14 @@ export function ApiDeveloperCard() {
       <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
         <DialogContent className="bg-slate-900 border-slate-800 max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-white">Generate New API Key?</DialogTitle>
+            <DialogTitle className="text-white">{t("settings.generateApiKeyTitle")}</DialogTitle>
             <DialogDescription className="text-slate-400">
-              A new key will be created and your current key will be immediately
-              invalidated. Any integrations using the old key will stop working.
+              {t("settings.generateApiKeyDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="my-1 p-3 bg-amber-950/30 border border-amber-900/40 rounded-lg">
             <p className="text-xs text-amber-400 font-medium">
-              ⚠ Update all your integrations with the new key before proceeding.
+              ⚠ {t("settings.updateIntegrationsWarning")}
             </p>
           </div>
           <DialogFooter className="gap-3 sm:gap-3">
@@ -193,13 +193,13 @@ export function ApiDeveloperCard() {
               onClick={() => setGenerateOpen(false)}
               className="flex-1 bg-slate-800/50 border-slate-700 hover:bg-slate-800 text-white"
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={handleGenerate}
               className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white"
             >
-              Yes, Generate
+              {t("settings.yesGenerate")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -209,15 +209,14 @@ export function ApiDeveloperCard() {
       <Dialog open={revokeOpen} onOpenChange={setRevokeOpen}>
         <DialogContent className="bg-slate-900 border-red-900/50 max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-white">Revoke API Key?</DialogTitle>
+            <DialogTitle className="text-white">{t("settings.revokeApiKeyTitle")}</DialogTitle>
             <DialogDescription className="text-slate-400">
-              This will permanently invalidate your current API key. All
-              integrations using this key will immediately lose access.
+              {t("settings.revokeApiKeyDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="my-1 p-3 bg-red-950/40 border border-red-900/40 rounded-lg">
             <p className="text-xs text-red-400 font-medium">
-              ⚠ This action cannot be undone.
+              ⚠ {t("settings.actionCannotBeUndone")}
             </p>
           </div>
           <DialogFooter className="gap-3 sm:gap-3">
@@ -226,13 +225,13 @@ export function ApiDeveloperCard() {
               onClick={() => setRevokeOpen(false)}
               className="flex-1 bg-slate-800/50 border-slate-700 hover:bg-slate-800 text-white"
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={handleRevoke}
               className="flex-1 bg-red-900/50 hover:bg-red-800/80 border border-red-800/60 text-red-300"
             >
-              Yes, Revoke
+              {t("settings.yesRevoke")}
             </Button>
           </DialogFooter>
         </DialogContent>

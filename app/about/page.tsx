@@ -3,6 +3,12 @@ import { ProductOverview } from "@/components/landing/product-overview";
 import TrustedTeamsSection from "@/components/trustedTeams-section";
 import { Navbar } from "@/components/landing/navbar";
 import Link from "next/link";
+import { makePageMetadata } from "@/lib/seo";
+
+export const metadata = makePageMetadata(
+  "About Stellar BatchPay",
+  "Learn how Stellar BatchPay helps teams streamline bulk payments, vested payouts, and secure wallet-based operations on Stellar.",
+);
 
 export default function AboutPage() {
     return (

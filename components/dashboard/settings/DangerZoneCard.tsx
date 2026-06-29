@@ -20,6 +20,7 @@ import {
 import { AlertTriangle, Wallet, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useWallet } from "@/contexts/WalletContext";
+import { t } from "@/lib/i18n";
 
 type ConfirmAction = "disconnect" | "delete" | null;
 
@@ -32,14 +33,14 @@ export function DangerZoneCard() {
     if (confirmAction === "disconnect") {
       disconnect();
       toast({
-        title: "Wallets disconnected",
-        description: "All wallet connections have been removed.",
+        title: t("settings.walletsDisconnectedTitle"),
+        description: t("settings.walletsDisconnectedDescription"),
         variant: "destructive",
       });
     } else if (confirmAction === "delete") {
       toast({
-        title: "Account deleted",
-        description: "Your account and all data have been permanently deleted.",
+        title: t("settings.accountDeletedTitle"),
+        description: t("settings.accountDeletedDescription"),
         variant: "destructive",
       });
     }
@@ -49,21 +50,19 @@ export function DangerZoneCard() {
   const actions = [
     {
       id: "disconnect" as ConfirmAction,
-      title: "Disconnect All Wallets",
-      description: "Remove all wallet connections",
-      buttonLabel: "Disconnect",
-      dialogTitle: "Disconnect All Wallets?",
-      dialogDescription:
-        "This will remove all connected wallet addresses from your account. You will need to reconnect your wallet to use the app.",
+      title: t("settings.disconnectAllWallets"),
+      description: t("settings.disconnectAllWalletsDescription"),
+      buttonLabel: t("settings.yesDisconnect").replace("Yes, ", ""),
+      dialogTitle: t("settings.disconnectAllWalletsDialogTitle"),
+      dialogDescription: t("settings.disconnectAllWalletsDialogDescription"),
     },
     {
       id: "delete" as ConfirmAction,
-      title: "Delete Account",
-      description: "Permanently delete your account and all data",
-      buttonLabel: "Delete",
-      dialogTitle: "Delete Account?",
-      dialogDescription:
-        "This action is irreversible. Your account, payment history, and all associated data will be permanently deleted. There is no way to recover this information.",
+      title: t("settings.deleteAccount"),
+      description: t("settings.deleteAccountDescription"),
+      buttonLabel: t("settings.yesDelete").replace("Yes, ", ""),
+      dialogTitle: t("settings.deleteAccountDialogTitle"),
+      dialogDescription: t("settings.deleteAccountDialogDescription"),
     },
   ];
 
@@ -77,10 +76,10 @@ export function DangerZoneCard() {
             </div>
             <div className="flex-1">
               <CardTitle className="text-2xl text-red-400">
-                Danger Zone
+                {t("settings.dangerZoneTitle")}
               </CardTitle>
               <CardDescription className="text-slate-400">
-                Irreversible actions - proceed with caution
+                {t("settings.dangerZoneDescription")}
               </CardDescription>
             </div>
           </div>
@@ -136,7 +135,7 @@ export function DangerZoneCard() {
 
           <div className="my-1 p-3 bg-red-950/40 border border-red-900/40 rounded-lg">
             <p className="text-xs text-red-400 font-medium">
-              ⚠ This action cannot be undone.
+              ⚠ {t("settings.actionCannotBeUndone")}
             </p>
           </div>
 
@@ -146,15 +145,15 @@ export function DangerZoneCard() {
               onClick={() => setConfirmAction(null)}
               className="flex-1 bg-slate-800/50 border-slate-700 hover:bg-slate-800 text-white"
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={handleConfirm}
               className="flex-1 bg-red-900/50 hover:bg-red-800/80 border border-red-800/60 text-red-300 hover:text-red-200"
             >
               {confirmAction === "disconnect"
-                ? "Yes, Disconnect"
-                : "Yes, Delete"}
+                ? t("settings.yesDisconnect")
+                : t("settings.yesDelete")}
             </Button>
           </DialogFooter>
         </DialogContent>

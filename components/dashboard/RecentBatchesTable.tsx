@@ -1,11 +1,17 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useMemo } from "react"
 import Link from "next/link"
+import { useQuery } from "@tanstack/react-query"
 import { CheckCircle2, Clock, AlertTriangle, Loader2 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  batchHistoryQueryKey,
+  fetchHistory,
+  type HistoricalBatch,
+} from "@/lib/dashboard/fetch-history"
 import { cn } from "@/lib/utils"
 
 export interface BatchRecord {
@@ -31,44 +37,64 @@ export function RecentBatchesTable({
   limit = 5,
   className,
 }: RecentBatchesTableProps) {
-  const [rows, setRows] = useState<BatchRecord[]>(batches ?? [])
-  const [loading, setLoading] = useState(!batches && Boolean(publicKey))
-  const [error, setError] = useState<string | null>(null)
+  const queryKey = useMemo(
+    () => batchHistoryQueryKey(publicKey, network, { limit }),
+    [publicKey, network, limit],
+  )
 
-  useEffect(() => {
-    if (batches) {
-      setRows(batches)
-      return
-    }
+  const { data: result, isLoading, error } = useQuery({
+    queryKey,
+    queryFn: () =>
+      fetchHistory({
+        publicKey: publicKey!,
+        page: 1,
+        limit,
+        networkFilter: network,
+      }),
+    enabled: !!publicKey && !batches,
+    staleTime: 30 * 1000,
+    placeholderData: (previousData) =>
+      previousData ?? { items: [], pagination: { totalPages: 1, total: 0 } },
+  })
 
-    if (!publicKey) {
-      setRows([])
-      setLoading(false)
-      setError(null)
-      return
-    }
+  const rows = batches ?? (result?.items ?? []).map(toBatchRecord)
 
-    const params = new URLSearchParams({
-      publicKey,
-      network,
-      limit: String(limit),
-    })
+  if (isLoading && rows.length === 0) {
+    return (
+      <Card className={cn("border-[#1F2937] bg-[#121827] shadow-lg", className)}>
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold text-white">Recent Batches</h2>
+            <Button asChild variant="link" className="text-[#00D98B] hover:text-[#00D98B]/80 text-sm p-0">
+              <Link href="/dashboard/history">View All</Link>
+            </Button>
+          </div>
+          <div className="flex items-center justify-center gap-2 py-16 text-gray-400">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span>Loading recent batches...</span>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
-    setLoading(true)
-    setError(null)
-
-    fetch(`/api/batch-history?${params.toString()}`)
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        return response.json() as Promise<{ items: BatchHistoryItem[] }>
-      })
-      .then((body) => setRows(body.items.map(toBatchRecord)))
-      .catch((err: unknown) => {
-        setRows([])
-        setError(err instanceof Error ? err.message : "Failed to load batches")
-      })
-      .finally(() => setLoading(false))
-  }, [batches, publicKey, network, limit])
+  if (error && rows.length === 0) {
+    return (
+      <Card className={cn("border-[#1F2937] bg-[#121827] shadow-lg", className)}>
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold text-white">Recent Batches</h2>
+            <Button asChild variant="link" className="text-[#00D98B] hover:text-[#00D98B]/80 text-sm p-0">
+              <Link href="/dashboard/history">View All</Link>
+            </Button>
+          </div>
+          <div className="flex items-center justify-center py-16 text-red-400">
+            Failed to load recent batches: {error instanceof Error ? error.message : "Unknown error"}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card className={cn("border-[#1F2937] bg-[#121827] shadow-lg", className)}>
@@ -80,16 +106,7 @@ export function RecentBatchesTable({
           </Button>
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 py-16 text-gray-400">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <span>Loading recent batches...</span>
-          </div>
-        ) : error ? (
-          <div className="flex items-center justify-center py-16 text-red-400">
-            Failed to load recent batches: {error}
-          </div>
-        ) : rows.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <p className="text-base font-semibold text-white">No batches yet</p>
             <p className="mt-2 max-w-md text-sm text-gray-400">
@@ -186,15 +203,7 @@ export function RecentBatchesTable({
   )
 }
 
-interface BatchHistoryItem {
-  jobId: string
-  status: "queued" | "processing" | "completed" | "failed"
-  totalPayments: number
-  totalAmount: string | null
-  createdAt: string
-}
-
-function toBatchRecord(item: BatchHistoryItem): BatchRecord {
+function toBatchRecord(item: HistoricalBatch): BatchRecord {
   return {
     id: item.jobId,
     recipients: item.totalPayments,
@@ -204,7 +213,7 @@ function toBatchRecord(item: BatchHistoryItem): BatchRecord {
   }
 }
 
-function toDisplayStatus(status: BatchHistoryItem["status"]): BatchRecord["status"] {
+function toDisplayStatus(status: HistoricalBatch["status"]): BatchRecord["status"] {
   if (status === "completed") return "Completed"
   if (status === "failed") return "Failed"
   return "Processing"

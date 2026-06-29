@@ -4,6 +4,12 @@
 
 export type JobStatus = "queued" | "processing" | "completed" | "failed";
 
+export type HorizonNetwork = "testnet" | "mainnet" | "futurenet";
+// Backward-compatible alias for modules that still import `Network`.
+export type Network = HorizonNetwork;
+// Batch jobs are only supported on production-facing payment networks.
+export type BatchJobNetwork = "testnet" | "mainnet";
+
 export interface JobState {
   jobId: string;
   publicKey: string | null;
@@ -11,7 +17,7 @@ export interface JobState {
   totalBatches: number;
   completedBatches: number;
   payments: PaymentInstruction[];
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   // #300: Support for pre-signed transactions (client-side signing)
   signedTransactions?: string[];
   result?: BatchResult;
@@ -20,7 +26,7 @@ export interface JobState {
   updatedAt: string;
 }
 
-export type MemoType = 'text' | 'id' | 'none';
+export type MemoType = "text" | "id" | "none";
 
 export interface PaymentInstruction {
   address: string;
@@ -28,6 +34,7 @@ export interface PaymentInstruction {
   asset: string; // 'XLM' for native or 'CODE:ISSUER' for issued assets
   memo?: string;
   memoType?: MemoType; // defaults to 'text' when memo is provided
+  rowIndex?: number; // #397: original row index from upload, used for retry matching
 }
 
 export interface PaymentValidationRow {
@@ -61,6 +68,7 @@ export interface PaymentResult {
   status: "success" | "failed";
   transactionHash?: string;
   error?: string;
+  rowIndex?: number; // #397: original row index, persisted for retry matching
 }
 
 export interface BatchResult {
@@ -68,7 +76,7 @@ export interface BatchResult {
   totalRecipients: number;
   totalAmount: string;
   totalTransactions: number;
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   timestamp: string;
   submittedAt?: string;
   results: PaymentResult[];
@@ -80,20 +88,22 @@ export interface BatchResult {
 
 export interface BatchConfig {
   maxOperationsPerTransaction: number;
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   secretKey: string;
 }
 
 /** Config for building unsigned transactions (wallet-signing flow) */
 export interface BuildBatchConfig {
   maxOperationsPerTransaction: number;
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   publicKey: string;
 }
 
 export interface BatchMetaEntry {
   ops: number;
   estimatedBytes: number;
+  /** Explicit byte size alias for clarity in API responses (#612). Same as estimatedBytes. */
+  byteSize: number;
 }
 
 /** Result from the batch-build endpoint (unsigned XDRs) */
@@ -101,8 +111,10 @@ export interface BuildBatchResult {
   xdrs: string[];
   batchCount: number;
   batchMeta?: BatchMetaEntry[];
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   publicKey: string;
+  /** The Stellar network max transaction size constant (100KB) for client-side progress bars (#612). */
+  maxTransactionBytes?: number;
 }
 
 /** Vesting data structure matching the smart contract */

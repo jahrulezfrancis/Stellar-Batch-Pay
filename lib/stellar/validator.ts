@@ -8,11 +8,12 @@ import {
   PaymentInstruction,
   MemoType,
   BatchConfig,
+  BatchJobNetwork,
   HorizonBalance,
   BalancesMap,
   BalanceValidationResult,
 } from "./types";
-import { parseStellarAmount } from "./utils";
+import { parseStellarAmount, formatAmount } from "./utils";
 
 function isValidPublicKey(value: string): boolean {
   return StrKey.isValidEd25519PublicKey(value);
@@ -168,7 +169,10 @@ export function validateBatchConfig(config: BatchConfig): {
   }
 
   if (config.network !== "testnet" && config.network !== "mainnet") {
-    return { valid: false, error: "network must be 'testnet' or 'mainnet'" };
+    return {
+      valid: false,
+      error: "network must be 'testnet' or 'mainnet'",
+    };
   }
 
   if (!config.secretKey || typeof config.secretKey !== "string") {
@@ -275,7 +279,8 @@ export function resolveAssetKey(asset: string): string {
 export function validateBalances(
   instructions: PaymentInstruction[],
   balancesMap: BalancesMap,
-  estimatedOperations: number = instructions.length,
+  estimatedOperations?: number,
+  maxOperationsPerTransaction: number = 100,
 ): BalanceValidationResult {
   // Aggregate required amounts per asset
   const requiredByAsset: Record<string, number> = {};
@@ -294,7 +299,11 @@ export function validateBalances(
   const SUBENTRY_RESERVE_XLM = 0.5; // per trustline
 
   // Calculate XLM reserves
-  const transactionFees = estimatedOperations * FEE_PER_OPERATION_XLM;
+  const finalOps = estimatedOperations !== undefined
+    ? estimatedOperations
+    : Math.max(instructions.length, 1);
+
+  const transactionFees = finalOps * FEE_PER_OPERATION_XLM;
   const xlmReserved = BASE_RESERVE_XLM + transactionFees;
 
   for (const [assetKey, required] of Object.entries(requiredByAsset)) {
@@ -324,4 +333,64 @@ export function validateBalances(
   }
 
   return { all_sufficient: allSufficient, checks };
+}
+
+export interface BatchSubmitValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export function validateBatchForSubmit(
+  payments: PaymentInstruction[],
+  balancesMap: BalancesMap,
+  missingTrustlines: string[],
+  network: BatchJobNetwork,
+  estimatedOperations?: number,
+  maxOperationsPerTransaction: number = 100,
+): BatchSubmitValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (payments.length === 0) {
+    errors.push("No payments to submit.");
+    return { valid: false, errors, warnings };
+  }
+
+  // 1. Validate payment instructions (formats, addresses, memos)
+  const instrValidation = validatePaymentInstructions(payments);
+  if (!instrValidation.valid) {
+    for (const [idx, err] of instrValidation.errors.entries()) {
+      errors.push(`Row ${idx + 1}: ${err}`);
+    }
+  }
+
+  // 2. Validate balances (sums and reserves)
+  const balanceCheck = validateBalances(payments, balancesMap, estimatedOperations, maxOperationsPerTransaction);
+  if (!balanceCheck.all_sufficient) {
+    for (const check of balanceCheck.checks) {
+      if (!check.sufficient) {
+        if (check.asset_key === "XLM" && check.xlm_reserved) {
+          errors.push(
+            `Insufficient balance for XLM. Required: ${formatAmount(check.required)} (plus ${check.xlm_reserved.toFixed(7)} reserve), Available: ${formatAmount(check.available)}`
+          );
+        } else {
+          errors.push(
+            `Insufficient balance for ${check.asset_key}. Required: ${formatAmount(check.required)}, Available: ${formatAmount(check.available)}`
+          );
+        }
+      }
+    }
+  }
+
+  // 3. Trustline warnings
+  if (missingTrustlines.length > 0) {
+    warnings.push(`${missingTrustlines.length} recipient(s) missing trustline. You can skip or convert to claimable balance.`);
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
 }

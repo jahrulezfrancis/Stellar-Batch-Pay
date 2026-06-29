@@ -13,10 +13,16 @@ import { PaymentWorkflowsSection } from "@/components/payment-workflows-section"
 import { MissionSection } from "@/components/landing/mission-section";
 import { WhyTeamsChooseBatchPay } from "@/components/landing/WhyTeamsChooseBatchPay";
 import StellarFooter from "@/components/landing/StellarFooter";
+import { makePageMetadata } from "@/lib/seo";
+
+export const metadata = makePageMetadata(
+  "Batch Payments",
+  "Send multiple payments on the Stellar blockchain in seconds. Explore batch payments, Soroban vesting, and secure wallet-driven workflows.",
+);
 
 export default function LandingPage() {
   return (
-    <main className="min-h-screen bg-background text-foreground flex flex-col">
+    <main id="main-content" className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar />
       <Hero />
       <ProcessSection />

@@ -15,11 +15,21 @@ import type { SecretsProvider } from './index';
 
 export class AwsSecretsProvider implements SecretsProvider {
   async fetchSecret(name: string): Promise<string> {
-    // Dynamic import keeps the AWS SDK out of the browser bundle
-    const {
-      SecretsManagerClient,
-      GetSecretValueCommand,
-    } = await import('@aws-sdk/client-secrets-manager');
+    // Dynamic import keeps the AWS SDK out of the browser bundle.
+    // @aws-sdk/client-secrets-manager is declared as an optionalDependency —
+    // install it with: bun add @aws-sdk/client-secrets-manager
+    let SecretsManagerClient: any;
+    let GetSecretValueCommand: any;
+    try {
+      const mod = await import('@aws-sdk/client-secrets-manager');
+      SecretsManagerClient = mod.SecretsManagerClient;
+      GetSecretValueCommand = mod.GetSecretValueCommand;
+    } catch {
+      throw new Error(
+        '[aws-backend] AWS Secrets Manager backend requires @aws-sdk/client-secrets-manager. ' +
+        'Run: bun add @aws-sdk/client-secrets-manager',
+      );
+    }
 
     const region = process.env.AWS_REGION;
     if (!region) {

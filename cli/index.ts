@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // SkillSphere Batch-Pay CLI (#362).
 //
 // The README and `scripts/example-cli.sh` referenced this entry point
@@ -46,6 +46,7 @@ interface ParsedArgs {
   output?: string;
   maxOps: number;
   help: boolean;
+  version: boolean;
 }
 
 const HELP = `stellar-batch-pay — Stellar batch payments CLI
@@ -76,6 +77,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     network: 'testnet',
     maxOps: 100,
     help: false,
+    version: false,
   };
 
   if (argv.length === 0) {
@@ -96,6 +98,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       case '--help':
       case '-h':
         args.help = true;
+        i += 1;
+        break;
+      case '--version':
+      case '-v':
+        args.version = true;
         i += 1;
         break;
       case '--input': {
@@ -239,6 +246,11 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
   } catch (e) {
     process.stderr.write(`${(e as Error).message}\n\n${HELP}`);
     return 2;
+  }
+
+  if (args.version) {
+    process.stdout.write(`stellar-batch-pay 0.1.0\n`);
+    return 0;
   }
 
   if (args.help || args.command === 'help') {

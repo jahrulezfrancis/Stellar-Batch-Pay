@@ -12,14 +12,15 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Log the error to an error reporting service (e.g., Sentry)
     console.error("Global error caught:", error);
 
-    // In production, send to Sentry or similar service
     if (process.env.NODE_ENV === "production" && process.env.NEXT_PUBLIC_SENTRY_DSN) {
-      // Example: Sentry.captureException(error);
+      import("@sentry/nextjs").then(({ captureException }) => captureException(error));
     }
   }, [error]);
+
+  const sentryEnabled =
+    process.env.NODE_ENV === "production" && !!process.env.NEXT_PUBLIC_SENTRY_DSN;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -32,7 +33,7 @@ export default function Error({
         <CardContent className="space-y-4">
           <div className="text-center space-y-2">
             <p className="text-muted-foreground">
-              An unexpected error occurred. Our team has been notified.
+              An unexpected error occurred.{sentryEnabled ? " Our team has been notified." : " Please try again or contact support if the issue persists."}
             </p>
             {process.env.NODE_ENV === "development" && (
               <p className="text-xs text-destructive font-mono bg-destructive/10 p-2 rounded">

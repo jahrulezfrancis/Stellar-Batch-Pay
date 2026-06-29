@@ -7,11 +7,12 @@ import { CompareFeatures } from "@/components/pricing/compare-features";
 import { CostExampleSection } from "@/components/pricing/CostExampleSection";
 import { FaqSection } from "@/components/pricing/faq-section";
 import { CtaSection } from "@/components/cta/cta-section";
+import { makePageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Pricing | Stellar Batch Pay",
-  description: "Simple, transparent pricing for Stellar Batch Pay.",
-};
+export const metadata: Metadata = makePageMetadata(
+  "Pricing",
+  "Simple, transparent pricing for Stellar BatchPay. Pay only for what you use with no hidden fees.",
+);
 
 export default function PricingPage() {
   return (

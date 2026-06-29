@@ -1,0 +1,47 @@
+# Version control
+.git
+.gitignore
+
+# Node / Next.js
+node_modules
+.next
+out
+dist
+build
+
+# Test artifacts
+coverage
+playwright-report
+test-results
+tests/e2e
+playwright.config.ts
+
+# Rust / Soroban contract artifacts
+contracts/target
+
+# Local persisted state — never bake into the image
+data
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Local env / secrets
+.env
+.env.*
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
+
+# Tooling / docs (not needed in image)
+README.md
+DEVELOPMENT.md
+DEPLOYMENT.md
+CONTRIBUTING.md
+examples
+.github
+.codex
+.eslintrc.json
+.vercel

@@ -14,15 +14,20 @@ import { TransactionBuilder, Horizon, Networks } from "stellar-sdk";
 import { safeJsonResponse } from "@/lib/safe-json";
 import { applyRateLimit, setRateLimitHeaders } from "@/lib/api-rate-limit";
 import { horizonUrl } from "@/lib/stellar/network-config";
+import type { BatchJobNetwork } from "@/lib/stellar/types";
 import {
     classifySubmitError,
     isBadSequenceError,
     isInsufficientFeeError,
 } from "@/lib/stellar/submit-errors";
+import { getXdrSourceAccount } from "@/lib/stellar/xdr-source";
 
 interface RequestBody {
     signedXdr: string;
-    network: "testnet" | "mainnet";
+    network: BatchJobNetwork;
+    // #504: Optional authenticated wallet. When provided, the transaction's
+    // source account (or fee-bump inner source) must match it.
+    publicKey?: string;
 }
 
 interface FeeStats {
@@ -46,7 +51,7 @@ export async function POST(request: NextRequest) {
 
     try {
         const body = (await request.json()) as RequestBody;
-        const { signedXdr, network } = body;
+        const { signedXdr, network, publicKey } = body;
 
         // ── Validate inputs ──────────────────────────────────────────
 
@@ -62,6 +67,23 @@ export async function POST(request: NextRequest) {
                 { error: "network must be 'testnet' or 'mainnet'" },
                 { status: 400 },
             );
+        }
+
+        // #504: When the caller declares a wallet, the signed transaction must
+        // originate from it. Reject mismatches before touching Horizon so a
+        // client cannot submit another wallet's transaction under publicKey.
+        if (publicKey) {
+            const source = getXdrSourceAccount(signedXdr, network);
+            if (source !== undefined && source !== publicKey) {
+                return NextResponse.json(
+                    {
+                        success: false,
+                        error:
+                            "Signed transaction source account does not match publicKey. Pre-signed submissions must be signed by the authenticated wallet.",
+                    },
+                    { status: 403 },
+                );
+            }
         }
 
         // ── Rehydrate and submit ─────────────────────────────────────

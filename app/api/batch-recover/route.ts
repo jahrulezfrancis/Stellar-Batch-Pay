@@ -24,7 +24,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const publicKey = searchParams.get("publicKey") ?? undefined;
+    const publicKey = searchParams.get("publicKey");
+    if (!publicKey) {
+      return NextResponse.json(
+        { error: "publicKey is required" },
+        { status: 400 },
+      );
+    }
+
+    // Always scope lookup to the owning wallet — return 404 on mismatch to
+    // avoid leaking whether a jobId exists at all (IDOR prevention, #538).
     const job = getJob(jobId, publicKey);
 
     if (!job || !job.result) {

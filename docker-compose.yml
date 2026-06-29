@@ -2,7 +2,10 @@ version: '3.8'
 
 services:
   stellar:
-    image: stellar/quickstart:latest
+    # Pinned to a specific quickstart release so local Horizon/Soroban RPC
+    # behavior is reproducible across machines. See DEVELOPMENT.md
+    # ("Updating the stellar/quickstart pin") before bumping this tag.
+    image: stellar/quickstart:23.0.6-2304
     container_name: stellar-quickstart
     ports:
       - "8000:8000" # Horizon
@@ -12,6 +15,22 @@ services:
       --enable-soroban-rpc
     volumes:
       - stellar-data:/opt/stellar
+    networks:
+      - stellar-network
+
+  app:
+    build: .
+    container_name: stellar-batch-pay-app
+    ports:
+      - "3000:3000"
+    environment:
+      - SOROBAN_RPC_URL=http://stellar:8001
+      - NEXT_PUBLIC_HORIZON_URL=http://stellar:8000
+      - NODE_ENV=production
+    depends_on:
+      - stellar
+    volumes:
+      - ./data:/app/data
     networks:
       - stellar-network
 

@@ -6,9 +6,20 @@
   "license": "ISC",
   "author": "",
   "type": "module",
-  "main": "index.js",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./package.json": "./package.json",
+    "./lib/*": "./lib/*"
+  },
+  "files": [
+    "cli",
+    "lib",
+    "index.ts",
+    "README.md"
+  ],
   "bin": {
-    "stellar-batch-pay": "./cli/index.mjs"
+    "stellar-batch-pay": "./cli/index.ts"
   },
   "directories": {
     "example": "examples",
@@ -20,8 +31,8 @@
     "dev": "next dev",
     "lint": "next lint",
     "start": "next start",
-    "cli": "node cli/index.mjs",
-    "cli:help": "node cli/index.mjs --help",
+    "cli": "bun cli/index.ts",
+    "cli:help": "bun cli/index.ts help",
     "test": "vitest run tests/",
     "test:e2e": "playwright test",
     "test:e2e:smoke": "playwright test smoke.spec.ts",
@@ -59,6 +70,7 @@
     "@radix-ui/react-toggle-group": "1.1.1",
     "@radix-ui/react-tooltip": "1.1.6",
     "@stellar/freighter-api": "^6.0.1",
+    "@tanstack/react-query": "^5.100.14",
     "@vercel/analytics": "1.3.1",
     "autoprefixer": "^10.4.20",
     "better-sqlite3": "11.10.0",
@@ -87,6 +99,9 @@
     "vaul": "^1.1.2",
     "zod": "^4.4.3"
   },
+  "optionalDependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.0.0"
+  },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
     "@tailwindcss/postcss": "^4.1.9",
@@ -99,12 +114,16 @@
     "@types/react-dom": "^19",
     "@vitest/runner": "^4.0.18",
     "baseline-browser-mapping": "^2.10.0",
-    "eslint": "^8.57.1",
+    "eslint": "^9.0.0",
     "eslint-config-next": "^16.0.10",
+    "fake-indexeddb": "^6.2.5",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tw-animate-css": "1.3.3",
     "typescript": "^5",
     "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

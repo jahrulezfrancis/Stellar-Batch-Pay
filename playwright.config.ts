@@ -26,11 +26,11 @@ export default defineConfig({
     },
   ],
   // Don't auto-start a server when E2E_BASE_URL is provided — the CI
-  // job points the suite at a pre-built preview.
+  // job points the suite at a pre-built production server.
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: "npm run dev",
+        command: "bun run dev",
         url: "http://localhost:3000",
         reuseExistingServer: !process.env.CI,
         timeout: 120 * 1000,

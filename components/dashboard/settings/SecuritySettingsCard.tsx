@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { t } from "@/lib/i18n";
 
 export function SecuritySettingsCard() {
   const { toast } = useToast();
@@ -36,23 +37,23 @@ export function SecuritySettingsCard() {
   const handleChangePassword = () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
       toast({
-        title: "Missing fields",
-        description: "Please fill in all password fields.",
+        title: t("settings.missingFieldsTitle"),
+        description: t("settings.missingFieldsDescription"),
         variant: "destructive",
       });
       return;
     }
     if (newPassword !== confirmPassword) {
       toast({
-        title: "Passwords don't match",
-        description: "New password and confirmation must match.",
+        title: t("settings.passwordsMismatchTitle"),
+        description: t("settings.passwordsMismatchDescription"),
         variant: "destructive",
       });
       return;
     }
     toast({
-      title: "Password changed",
-      description: "Your password has been updated successfully.",
+      title: t("settings.passwordChangedTitle"),
+      description: t("settings.passwordChangedDescription"),
     });
     setChangePasswordOpen(false);
     setCurrentPassword("");
@@ -63,32 +64,32 @@ export function SecuritySettingsCard() {
   const rows = [
     {
       id: "password",
-      title: "Password",
-      description: "Last changed 30 days ago",
+      title: t("settings.password"),
+      description: t("settings.passwordDescription"),
       action: (
         <Button
           size="sm"
           onClick={() => setChangePasswordOpen(true)}
           className="shrink-0 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white"
         >
-          Change
+          {t("settings.change")}
         </Button>
       ),
     },
     {
       id: "2fa",
-      title: "Two-Factor Authentication",
-      description: "Add extra layer of security",
+      title: t("settings.twoFactor"),
+      description: t("settings.twoFactorDescription"),
       action: (
         <Switch
           checked={twoFactor}
           onCheckedChange={(v) => {
             setTwoFactor(v);
             toast({
-              title: v ? "2FA enabled" : "2FA disabled",
+              title: v ? t("settings.twoFactorEnabledTitle") : t("settings.twoFactorDisabledTitle"),
               description: v
-                ? "Two-factor authentication is now active."
-                : "Two-factor authentication has been turned off.",
+                ? t("settings.twoFactorEnabledDescription")
+                : t("settings.twoFactorDisabledDescription"),
             });
           }}
           className="data-[state=checked]:bg-emerald-500 shrink-0"
@@ -97,18 +98,18 @@ export function SecuritySettingsCard() {
     },
     {
       id: "alerts",
-      title: "Security Alerts",
-      description: "Get notified of suspicious activity",
+      title: t("settings.securityAlerts"),
+      description: t("settings.securityAlertsDescription"),
       action: (
         <Switch
           checked={securityAlerts}
           onCheckedChange={(v) => {
             setSecurityAlerts(v);
             toast({
-              title: v ? "Security alerts enabled" : "Security alerts disabled",
+              title: v ? t("settings.securityAlertsEnabledTitle") : t("settings.securityAlertsDisabledTitle"),
               description: v
-                ? "You'll be notified of suspicious activity."
-                : "Security alert notifications are off.",
+                ? t("settings.securityAlertsEnabledDescription")
+                : t("settings.securityAlertsDisabledDescription"),
             });
           }}
           className="data-[state=checked]:bg-emerald-500 shrink-0"
@@ -117,15 +118,15 @@ export function SecuritySettingsCard() {
     },
     {
       id: "sessions",
-      title: "Active Sessions",
-      description: "2 active sessions",
+      title: t("settings.activeSessions"),
+      description: t("settings.activeSessionsDescription"),
       action: (
         <Button
           size="sm"
           onClick={() => setManageSessionsOpen(true)}
           className="shrink-0 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white"
         >
-          Manage
+          {t("settings.manage")}
         </Button>
       ),
     },
@@ -141,10 +142,10 @@ export function SecuritySettingsCard() {
             </div>
             <div className="flex-1">
               <CardTitle className="text-2xl text-white">
-                Security Settings
+                {t("settings.securityTitle")}
               </CardTitle>
               <CardDescription className="text-slate-400">
-                Manage your account security
+                {t("settings.securityDescription")}
               </CardDescription>
             </div>
           </div>
@@ -172,14 +173,14 @@ export function SecuritySettingsCard() {
       <Dialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen}>
         <DialogContent className="bg-slate-900 border-slate-800 max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-white">Change Password</DialogTitle>
+            <DialogTitle className="text-white">{t("settings.changePasswordTitle")}</DialogTitle>
             <DialogDescription className="text-slate-400">
-              Enter your current password and choose a new one.
+              {t("settings.changePasswordDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label className="text-slate-300">Current Password</Label>
+              <Label className="text-slate-300">{t("settings.currentPassword")}</Label>
               <Input
                 type="password"
                 value={currentPassword}
@@ -188,7 +189,7 @@ export function SecuritySettingsCard() {
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-slate-300">New Password</Label>
+              <Label className="text-slate-300">{t("settings.newPassword")}</Label>
               <Input
                 type="password"
                 value={newPassword}
@@ -197,7 +198,7 @@ export function SecuritySettingsCard() {
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-slate-300">Confirm New Password</Label>
+              <Label className="text-slate-300">{t("settings.confirmNewPassword")}</Label>
               <Input
                 type="password"
                 value={confirmPassword}
@@ -212,13 +213,13 @@ export function SecuritySettingsCard() {
               onClick={() => setChangePasswordOpen(false)}
               className="flex-1 bg-slate-800/50 border-slate-700 hover:bg-slate-800 text-white"
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={handleChangePassword}
               className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white"
             >
-              Update Password
+              {t("settings.updatePassword")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -228,9 +229,9 @@ export function SecuritySettingsCard() {
       <Dialog open={manageSessionsOpen} onOpenChange={setManageSessionsOpen}>
         <DialogContent className="bg-slate-900 border-slate-800 max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-white">Active Sessions</DialogTitle>
+            <DialogTitle className="text-white">{t("settings.activeSessions")}</DialogTitle>
             <DialogDescription className="text-slate-400">
-              Manage your active login sessions.
+              {t("settings.activeSessionsDialogDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
@@ -247,7 +248,7 @@ export function SecuritySettingsCard() {
                     {session.device}
                     {session.current && (
                       <span className="text-xs bg-emerald-500/15 text-emerald-400 px-2 py-0.5 rounded-full">
-                        Current
+                        {t("settings.currentSession")}
                       </span>
                     )}
                   </div>
@@ -261,11 +262,11 @@ export function SecuritySettingsCard() {
                     variant="ghost"
                     className="text-red-400 hover:text-red-300 hover:bg-red-900/20 text-xs h-7"
                     onClick={() => {
-                      toast({ title: "Session revoked", description: `${session.device} has been signed out.` });
+                      toast({ title: t("settings.sessionRevokedTitle"), description: t("settings.sessionRevokedDescription", { device: session.device }) });
                       setManageSessionsOpen(false);
                     }}
                   >
-                    Revoke
+                    {t("settings.revoke")}
                   </Button>
                 )}
               </div>
@@ -276,7 +277,7 @@ export function SecuritySettingsCard() {
               onClick={() => setManageSessionsOpen(false)}
               className="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white"
             >
-              Done
+              {t("common.done")}
             </Button>
           </DialogFooter>
         </DialogContent>

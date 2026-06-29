@@ -7,23 +7,48 @@
  *
  * Returns 202 Accepted immediately with a jobId.
  * Frontend polls /api/batch-status/:jobId for progress.
+ *
+ * Idempotency semantics (#502)
+ * ────────────────────────────
+ * Duplicate submissions are deduplicated by Idempotency-Key (or a request-body
+ * hash) via createIdempotentJob. A replay does NOT just return the cached
+ * response — it also *resumes processing* when the original job is stranded.
+ *
+ * If the original worker never ran (the fire-and-forget promise was lost on a
+ * server restart) or crashed mid-job, the job is left "queued"/"processing"
+ * with a stale updatedAt. On replay we reload the job and, when it is stranded,
+ * re-invoke processJobInBackground so the batch actually executes. Terminal
+ * jobs (completed/failed) are never re-processed, so a replay can never trigger
+ * a double payout. The 202 body reports `replayed` and `workerRestarted` so the
+ * client can tell whether processing was resumed.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
-import { StrKey } from "stellar-sdk";
+import { Keypair, StrKey } from "stellar-sdk";
 import { validatePaymentInstructions } from "@/lib/stellar";
+import { BatchMemoConflictError, createBatches } from "@/lib/stellar/batcher";
 import { MAX_UPLOAD_ROWS } from "@/lib/stellar/parser";
 import { safeJsonResponse } from "@/lib/safe-json";
-import { createIdempotentJob, IdempotencyConflictError } from "@/lib/job-store";
+import { createIdempotentJob, IdempotencyConflictError, getJob } from "@/lib/job-store";
 import { processJobInBackground } from "@/lib/stellar/batch-worker";
-import type { PaymentInstruction } from "@/lib/stellar/types";
+import { processJobInBackground } from "@/lib/stellar/batch-worker";
+import { findSourceMismatch } from "@/lib/stellar/xdr-source";
+import type {
+  JobState,
+  PaymentInstruction,
+  BatchJobNetwork,
+} from "@/lib/stellar/types";
 import { applyRateLimit, setRateLimitHeaders } from "@/lib/api-rate-limit";
 import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
+import { logger } from "@/lib/logger";
+import { applyRateLimit, setRateLimitHeaders } from "@/lib/api-rate-limit";
+import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
+import { logger } from "@/lib/logger";
 
 interface RequestBody {
   payments?: PaymentInstruction[];
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   publicKey: string;
   // #300: Support for client-side signed transactions (XDR format)
   signedTransactions?: string[];
@@ -37,7 +62,49 @@ type BatchSubmitAcceptedResponse = {
   totalPayments?: number;
   totalTransactions?: number;
   message: string;
+  // #502: present on every 202 so clients can tell whether this was a fresh
+  // submission, a cached replay, and whether a stranded worker was resumed.
+  replayed?: boolean;
+  workerRestarted?: boolean;
 };
+
+const MAX_OPS = 100;
+
+/**
+ * A replayed job is "stranded" when it never reached a terminal state but its
+ * worker is no longer making progress: either it is still "queued" (the
+ * fire-and-forget worker was lost on a restart) or it has been "processing"
+ * without any update for longer than the staleness window (the worker crashed
+ * mid-job). A short window keeps us from racing a worker that is actively
+ * running, while still recovering genuinely stuck batches. (#502)
+ */
+const REPLAY_STALE_MS = Number(
+  process.env.IDEMPOTENCY_REPLAY_STALE_MS ?? 30_000,
+);
+
+function isStrandedJob(job: JobState | undefined): boolean {
+  if (!job) return false;
+  if (job.status !== "queued" && job.status !== "processing") return false;
+
+  const age = Date.now() - new Date(job.updatedAt).getTime();
+  return Number.isFinite(age) && age >= REPLAY_STALE_MS;
+}
+
+/**
+ * On idempotent replay, resume processing when the original job is stranded.
+ * Returns true when the worker was re-invoked.
+ */
+function resumeStrandedReplay(
+  jobId: string,
+  restartWorker: () => void,
+): boolean {
+  const job = getJob(jobId);
+
+  if (!isStrandedJob(job)) return false;
+
+  restartWorker();
+  return true;
+}
 
 function buildIdempotencyKey(body: RequestBody, headerKey: string | null): { idempotencyKey: string; requestHash: string } {
   const canonicalBody = canonicalizeIdempotencyPayload({
@@ -57,16 +124,22 @@ export async function POST(request: NextRequest) {
   const rate = applyRateLimit(request, "batch-submit");
   if (rate.blocked) return rate.response!;
 
+  const requestId = request.headers.get("x-request-id");
+
   try {
     // Parse request body
     const body = (await request.json()) as RequestBody;
     const { payments, signedTransactions, network, publicKey } = body;
+    
+    logger.info({ requestId, publicKey, network }, "API batch-submit handler started");
+
     const { idempotencyKey, requestHash } = buildIdempotencyKey(
       body,
       request.headers.get("Idempotency-Key"),
     );
 
     if (!publicKey || typeof publicKey !== "string") {
+      logger.warn({ requestId }, "Missing publicKey in request");
       return NextResponse.json(
         { error: "publicKey is required" },
         { status: 400 },
@@ -74,6 +147,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!StrKey.isValidEd25519PublicKey(publicKey)) {
+      logger.warn({ requestId, publicKey }, "Invalid Stellar public key checksum provided");
       return NextResponse.json(
         { error: "Invalid Stellar public key checksum" },
         { status: 400 },
@@ -82,6 +156,7 @@ export async function POST(request: NextRequest) {
 
     // Validate network
     if (!["testnet", "mainnet"].includes(network)) {
+      logger.warn({ requestId, network }, "Invalid network provided");
       return NextResponse.json(
         { error: "Invalid network: must be 'testnet' or 'mainnet'" },
         { status: 400 },
@@ -92,6 +167,7 @@ export async function POST(request: NextRequest) {
     // Mode 1: Client-side signed transactions (pre-signed XDRs)
     if (signedTransactions && signedTransactions.length > 0) {
       if (!Array.isArray(signedTransactions)) {
+        logger.warn({ requestId }, "signedTransactions must be an array");
         return NextResponse.json(
           { error: "signedTransactions must be an array of XDR strings" },
           { status: 400 },
@@ -99,9 +175,29 @@ export async function POST(request: NextRequest) {
       }
 
       if (signedTransactions.length > MAX_UPLOAD_ROWS) {
+        logger.warn({ requestId, count: signedTransactions.length }, "signedTransactions exceeds MAX_UPLOAD_ROWS");
         return NextResponse.json(
           { error: `Batch exceeds the maximum of ${MAX_UPLOAD_ROWS} transactions per upload.` },
           { status: 400 },
+        );
+      }
+
+      // #504: A pre-signed envelope must be signed by the wallet the job is
+      // attributed to. Reject any XDR whose source account (or fee-bump inner
+      // source) differs from publicKey before creating the job, so a client
+      // cannot attribute another wallet's signed transaction to publicKey.
+      const mismatch = findSourceMismatch(signedTransactions, publicKey, network);
+      if (mismatch) {
+        logger.warn(
+          { requestId, publicKey, index: mismatch.index, source: mismatch.source },
+          "Pre-signed transaction source does not match request publicKey",
+        );
+        return NextResponse.json(
+          {
+            error:
+              "Signed transaction source account does not match publicKey. Pre-signed batches must be signed by the authenticated wallet.",
+          },
+          { status: 403 },
         );
       }
 
@@ -124,16 +220,28 @@ export async function POST(request: NextRequest) {
       });
 
       if (outcome.replayed) {
-        return setRateLimitHeaders(safeJsonResponse(outcome.responseBody, { status: 202 }), rate);
+        const workerRestarted = resumeStrandedReplay(outcome.jobId, () => {
+          void processJobInBackground(outcome.jobId, [], network, undefined, signedTransactions, requestId || undefined);
+        });
+        logger.info({ requestId, jobId: outcome.jobId, publicKey, network, replayed: true, workerRestarted }, "Batch submit job replayed (pre-signed mode)");
+        return setRateLimitHeaders(safeJsonResponse(
+          { ...outcome.responseBody, replayed: true, workerRestarted },
+          { status: 202 },
+        ), rate);
       }
 
-      void processJobInBackground(outcome.jobId, [], network, undefined, signedTransactions);
+      void processJobInBackground(outcome.jobId, [], network, undefined, signedTransactions, requestId || undefined);
 
-      return setRateLimitHeaders(safeJsonResponse(outcome.responseBody, { status: 202 }), rate);
+      logger.info({ requestId, jobId: outcome.jobId, publicKey, network, replayed: false }, "Batch submit job queued and background worker triggered (pre-signed mode)");
+      return setRateLimitHeaders(safeJsonResponse(
+        { ...outcome.responseBody, replayed: false, workerRestarted: false },
+        { status: 202 },
+      ), rate);
     }
 
     // Mode 2: Server-side signing (legacy, requires STELLAR_SECRET_KEY)
     if (!payments || payments.length === 0) {
+      logger.warn({ requestId }, "Either payments or signedTransactions must be provided");
       return NextResponse.json(
         { error: "Either 'payments' or 'signedTransactions' must be provided" },
         { status: 400 },
@@ -142,6 +250,7 @@ export async function POST(request: NextRequest) {
 
     const allowServerSigning = process.env.ALLOW_SERVER_SIGNING === "true";
     if (!allowServerSigning) {
+      logger.warn({ requestId }, "Server-side signing is disabled by server configuration");
       return NextResponse.json(
         {
           error:
@@ -154,14 +263,28 @@ export async function POST(request: NextRequest) {
     // Get secret key from environment
     const secretKey = process.env.STELLAR_SECRET_KEY;
     if (!secretKey) {
+      logger.error({ requestId }, "STELLAR_SECRET_KEY is not configured on server");
       return NextResponse.json(
         { error: "STELLAR_SECRET_KEY is not configured. Please configure server-side signing or use client-side signing." },
         { status: 500 },
       );
     }
 
+    const signingPublicKey = Keypair.fromSecret(secretKey).publicKey();
+    if (signingPublicKey !== publicKey) {
+      logger.warn({ requestId, publicKey, signingPublicKey }, "Request publicKey does not match server signing key");
+      return NextResponse.json(
+        {
+          error:
+            "Server-side signing is bound to the configured STELLAR_SECRET_KEY and must match the request publicKey.",
+        },
+        { status: 403 },
+      );
+    }
+
     // Validate input
     if (!Array.isArray(payments) || payments.length === 0) {
+      logger.warn({ requestId }, "payments must be a non-empty array");
       return NextResponse.json(
         { error: "Invalid request: payments must be a non-empty array" },
         { status: 400 },
@@ -169,6 +292,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (payments.length > MAX_UPLOAD_ROWS) {
+      logger.warn({ requestId, count: payments.length }, "payments exceeds MAX_UPLOAD_ROWS");
       return NextResponse.json(
         { error: `Batch exceeds the maximum of ${MAX_UPLOAD_ROWS} payments per upload.` },
         { status: 400 },
@@ -179,12 +303,27 @@ export async function POST(request: NextRequest) {
     const validation = validatePaymentInstructions(payments);
     if (!validation.valid) {
       const errors = Array.from(validation.errors.entries())
-        .map(([idx, err]) => `Row ${idx}: ${err}`)
+        .map(([idx, err]) => `Row ${idx + 1}: ${err}`)
         .slice(0, 5);
+      logger.warn({ requestId, validationErrors: errors }, "Invalid payment instructions validation failure");
       return NextResponse.json(
         { error: `Invalid payment instructions: ${errors.join("; ")}` },
         { status: 400 },
       );
+    }
+
+    try {
+      await createBatches(payments, MAX_OPS, { network });
+    } catch (error) {
+      if (error instanceof BatchMemoConflictError) {
+        logger.warn({ requestId, error: error.message }, "Batch memo validation failure");
+        return NextResponse.json(
+          { error: error.message },
+          { status: 400 },
+        );
+      }
+
+      throw error;
     }
 
     const outcome = createIdempotentJob<BatchSubmitAcceptedResponse>({
@@ -205,23 +344,35 @@ export async function POST(request: NextRequest) {
     });
 
     if (outcome.replayed) {
-      return setRateLimitHeaders(safeJsonResponse(outcome.responseBody, { status: 202 }), rate);
+      const workerRestarted = resumeStrandedReplay(outcome.jobId, () => {
+        void processJobInBackground(outcome.jobId, payments, network, secretKey, undefined, requestId || undefined);
+      });
+      logger.info({ requestId, jobId: outcome.jobId, publicKey, network, replayed: true, workerRestarted }, "Batch submit job replayed (server-signed mode)");
+      return setRateLimitHeaders(safeJsonResponse(
+        { ...outcome.responseBody, replayed: true, workerRestarted },
+        { status: 202 },
+      ), rate);
     }
 
     // Fire-and-forget: start background processing without awaiting
-    void processJobInBackground(outcome.jobId, payments, network, secretKey);
+    void processJobInBackground(outcome.jobId, payments, network, secretKey, undefined, requestId || undefined);
 
+    logger.info({ requestId, jobId: outcome.jobId, publicKey, network, replayed: false }, "Batch submit job queued and background worker triggered (server-signed mode)");
     // Return 202 Accepted with the job ID for polling
-    return setRateLimitHeaders(safeJsonResponse(outcome.responseBody, { status: 202 }), rate);
+    return setRateLimitHeaders(safeJsonResponse(
+      { ...outcome.responseBody, replayed: false, workerRestarted: false },
+      { status: 202 },
+    ), rate);
   } catch (error) {
     if (error instanceof IdempotencyConflictError) {
+      logger.warn({ requestId }, `Idempotency conflict: ${error.message}`);
       return setRateLimitHeaders(safeJsonResponse(
         { error: error.message },
         { status: 409 },
       ), rate);
     }
 
-    console.error("Batch submission error:", error);
+    logger.error({ requestId }, "Batch submission error", error);
     return setRateLimitHeaders(safeJsonResponse(
       {
         error: error instanceof Error ? error.message : "Internal server error",

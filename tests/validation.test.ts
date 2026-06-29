@@ -10,6 +10,7 @@ import {
   validateBatchConfig,
   validatePaymentInstructions,
   validateMemo,
+  validateBatchForSubmit,
 } from '../lib/stellar/validator';
 
 const validSecretKey = Keypair.random().secret();
@@ -151,6 +152,28 @@ describe('Memo Validation', () => {
     const result = validateMemo('12.5', 'id');
     expect(result.valid).toBe(false);
     expect(result.error).toContain('valid integer');
+  });
+
+  // #554 — u64 boundary validation
+  test('accepts u64 max value (18446744073709551615)', () => {
+    const result = validateMemo('18446744073709551615', 'id');
+    expect(result.valid).toBe(true);
+  });
+
+  test('accepts u64 min value (0)', () => {
+    const result = validateMemo('0', 'id');
+    expect(result.valid).toBe(true);
+  });
+
+  test('rejects u64 max + 1 (18446744073709551616)', () => {
+    const result = validateMemo('18446744073709551616', 'id');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('64-bit');
+  });
+
+  test('rejects negative memo ID string', () => {
+    const result = validateMemo('-5', 'id');
+    expect(result.valid).toBe(false);
   });
 
   test('validates memo type none', () => {
@@ -305,5 +328,58 @@ describe('Batch Validation', () => {
     expect(result.valid).toBe(false);
     expect(result.errors.size).toBe(1);
     expect(result.errors.has(1)).toBe(true);
+  });
+});
+
+describe('validateBatchForSubmit', () => {
+  test('validates correct batch submission', () => {
+    const result = validateBatchForSubmit(
+      [
+        {
+          address: validAddress,
+          amount: '100',
+          asset: 'XLM',
+        },
+      ],
+      { XLM: 200 },
+      [],
+      'testnet',
+    );
+    expect(result.valid).toBe(true);
+    expect(result.errors.length).toBe(0);
+  });
+
+  test('reports insufficient XLM balance', () => {
+    const result = validateBatchForSubmit(
+      [
+        {
+          address: validAddress,
+          amount: '100',
+          asset: 'XLM',
+        },
+      ],
+      { XLM: 50 },
+      [],
+      'testnet',
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors.join(' ')).toContain('Insufficient balance for XLM. Required: 100');
+  });
+
+  test('reports missing trustline warnings', () => {
+    const result = validateBatchForSubmit(
+      [
+        {
+          address: validAddress,
+          amount: '100',
+          asset: `USDC:${validIssuer}`,
+        },
+      ],
+      { [`USDC:${validIssuer}`]: 200 },
+      [validAddress],
+      'testnet',
+    );
+    expect(result.valid).toBe(true); // missing trustline is only a warning
+    expect(result.warnings.join(' ')).toContain('missing trustline');
   });
 });

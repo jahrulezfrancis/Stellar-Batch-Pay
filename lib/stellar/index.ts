@@ -4,12 +4,16 @@
  */
 
 export { parseInput, parseJSON, parseCSV, parseFileStream, analyzeParsedPayments, parsePaymentFile, MAX_UPLOAD_ROWS } from './parser';
-export { createBatches, parseAsset, getBatchSummary } from './batcher';
-export { validatePaymentInstruction, validateBatchConfig, validatePaymentInstructions, validateBalances, buildBalancesMap } from './validator';
+export { createBatches, getBatchSummary } from './batcher';
+export { parseAsset } from './utils';
+export { validatePaymentInstruction, validateBatchConfig, validatePaymentInstructions, validateBalances, buildBalancesMap, validateBatchForSubmit } from './validator';
 export { fetchFeeStats, getRecommendedFee, getFeeForOperations, clearFeeCache } from './fee-service';
 export type { FeeStats, FeeOptions } from './fee-service';
 export type { 
   PaymentInstruction, 
+  BatchJobNetwork,
+  HorizonNetwork,
+  Network,
   Asset, 
   StellarTransaction, 
   PaymentResult, 

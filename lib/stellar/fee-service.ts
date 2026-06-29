@@ -37,8 +37,8 @@ const DEFAULT_OPTIONS: Required<FeeOptions> = {
 };
 
 // Cache for fee stats to avoid excessive API calls
-let cachedFeeStats: FeeStats | null = null;
-let cacheTimestamp: number = 0;
+// Keyed by server URL to support multiple networks in the same process
+const feeStatsCache = new Map<string, { stats: FeeStats; timestamp: number }>();
 const CACHE_TTL_MS = 30000; // Cache for 30 seconds
 
 /**
@@ -47,16 +47,26 @@ const CACHE_TTL_MS = 30000; // Cache for 30 seconds
 export async function fetchFeeStats(
   server: Horizon.Server
 ): Promise<FeeStats> {
+  // Create a cache key from server URL
+  let serverUrl: string;
+  try {
+    serverUrl = server.serverURL.toString();
+  } catch {
+    // Fallback for test mocks or malformed servers
+    serverUrl = String(server.serverURL) || 'unknown';
+  }
+  
   // Return cached stats if still valid
-  if (cachedFeeStats && Date.now() - cacheTimestamp < CACHE_TTL_MS) {
-    return cachedFeeStats;
+  const cached = feeStatsCache.get(serverUrl);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.stats;
   }
 
   try {
     const feeStats = await server.feeStats();
-    cachedFeeStats = feeStats as unknown as FeeStats;
-    cacheTimestamp = Date.now();
-    return cachedFeeStats;
+    const stats = feeStats as unknown as FeeStats;
+    feeStatsCache.set(serverUrl, { stats, timestamp: Date.now() });
+    return stats;
   } catch (error) {
     console.warn('Failed to fetch fee stats from Horizon, using BASE_FEE:', error);
     // Return default fee stats based on BASE_FEE if fetch fails
@@ -128,6 +138,5 @@ export async function getFeeForOperations(
  * Clear the fee cache (useful for testing or forcing a refresh)
  */
 export function clearFeeCache(): void {
-  cachedFeeStats = null;
-  cacheTimestamp = 0;
+  feeStatsCache.clear();
 }

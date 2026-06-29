@@ -26,16 +26,58 @@ export LOG_LEVEL="info"
 export NODE_ENV="production"
 ```
 
+### `ALLOW_SERVER_SIGNING` — Server-Side Transaction Signing (#596)
+
+| Variable               | Default         | Purpose                                                                             |
+| ---------------------- | --------------- | ----------------------------------------------------------------------------------- |
+| `ALLOW_SERVER_SIGNING` | `false` (unset) | Allow the server to sign and submit Stellar transactions using `STELLAR_SECRET_KEY` |
+
+**Default behaviour (unset or `"false"`):** The API routes `/api/batch-submit` and `/api/batch-retry` reject server-signing requests with HTTP 403. Users must sign via a connected client wallet (Freighter). This is the safe default for public deployments.
+
+**When `ALLOW_SERVER_SIGNING=true`:** The server signs transactions directly using `STELLAR_SECRET_KEY`. This is appropriate for:
+
+- Internal/trusted deployments where the server is not publicly accessible
+- Automated test pipelines (e.g. `tests/batch-submit.test.ts` sets this to `"true"`)
+- Staging environments running automated batch jobs
+
+**Security warnings:**
+
+- `ALLOW_SERVER_SIGNING=true` centralises key risk on the server. A compromised server can sign and submit arbitrary transactions.
+- Never enable on public-facing production endpoints without additional access controls (VPN, IP allowlist, or mutual TLS).
+- Requires `STELLAR_SECRET_KEY` to be set; the flag has no effect without it.
+- Audit all access logs when this flag is active.
+
+```bash
+# Staging / internal use only
+export ALLOW_SERVER_SIGNING=true
+export STELLAR_SECRET_KEY="S..."
+
+# Production (public) — leave unset; users sign via Freighter wallet
+# ALLOW_SERVER_SIGNING is intentionally absent
+```
+
+> **API error when disabled:** `POST /api/batch-submit` or `/api/batch-retry` without server signing enabled returns:
+>
+> ```json
+> {
+>   "error": "Server-side signing is disabled. Use client-side signing with a connected wallet, or enable ALLOW_SERVER_SIGNING=true in server configuration."
+> }
+> ```
+>
+> See DEVELOPMENT.md for local test setup using this flag.
+
 ### Environment Variable Management
 
 **Do NOT commit `.env` files or secrets to version control.**
 
 **Recommended approach:**
+
 1. Use a secret management service (AWS Secrets Manager, HashiCorp Vault, etc.)
 2. Set environment variables at deployment time
 3. Use secure environment variable providers
 
 **For Vercel deployment:**
+
 ```bash
 vercel env add STELLAR_SECRET_KEY
 ```
@@ -92,6 +134,43 @@ environments.
 No secret is written to disk, logs, or intermediate environment files in the
 `aws` or `github` backends.
 
+### Keeper Bot Pagination Configuration (#586)
+
+Recipients with more than `MAINTENANCE_LIMIT` vesting schedule entries require
+multiple keeper runs to receive full TTL coverage. The bot persists a per-recipient
+`nextMaintenanceIndex` cursor between runs so progress is never lost.
+
+| Variable            | Default                    | Purpose                                                 |
+| ------------------- | -------------------------- | ------------------------------------------------------- |
+| `MAINTENANCE_LIMIT` | `10`                       | Number of schedule indices bumped per recipient per run |
+| `KEEPER_STATE_PATH` | `./data/keeper-state.json` | JSON file storing per-recipient pagination cursors      |
+
+**How many runs to achieve full coverage:**
+
+If a recipient has `S` schedule entries and `MAINTENANCE_LIMIT=L`, full coverage
+requires `ceil(S / L)` consecutive keeper runs. After the final window is processed
+the cursor resets to 0 and the next run begins a fresh sweep.
+
+```
+Example: 50 schedule entries, MAINTENANCE_LIMIT=10 → 5 runs for full coverage.
+```
+
+**Tuning recommendations:**
+
+- Increase `MAINTENANCE_LIMIT` to cover larger recipients in fewer runs. Keep it
+  within Soroban transaction size limits (Stellar enforces a per-transaction instruction
+  cap; values above 50 may require fee increases or encounter simulation errors).
+- Set `KEEPER_STATE_PATH` to a persistent volume path in serverless/containerised
+  deployments so the cursor survives cold starts.
+- Keeper logs per-recipient progress: watch for `cursor reset to 0` lines to confirm
+  a full sweep completed.
+
+```bash
+# Example: tune for recipients with up to 25 entries, 3 runs for full coverage
+export MAINTENANCE_LIMIT=10
+export KEEPER_STATE_PATH=/mnt/data/keeper-state.json
+```
+
 ---
 
 ## Smart Contract Deployment
@@ -101,13 +180,79 @@ Follow these steps to deploy and initialize the Soroban smart contract.
 ### 1. Prerequisites
 
 Ensure you have the following installed:
+
 - [Rust](https://www.rust-lang.org/tools/install)
 - [Stellar CLI](https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup#install-the-stellar-cli)
 - Wasm target: `rustup target add wasm32-unknown-unknown`
 
+### 1a. Fee Asset Whitelist Configuration (#543)
+
+The batch-vesting contract enforces a **single whitelisted fee asset** stored in the contract `Config`. This prevents admin key compromise from allowing arbitrary token fee collection that could drain depositors.
+
+**Key points:**
+
+- The fee asset is set **once** during contract initialization via `set_config()`
+- `set_fee_config()` **no longer accepts** a `fee_asset` parameter — it only sets `fee_per_recipient` and `treasury`
+- All deposit fees are automatically collected in the whitelisted asset
+- Changing the fee asset requires a full `set_config()` call (admin-only)
+
+**Recommended fee assets:**
+
+- **Testnet/Mainnet**: Use native XLM (the network's Stellar Asset Contract address)
+- **Private networks**: Use the native asset SAC address for that network
+
+**Example initialization:**
+
+```bash
+# 1. Deploy contract
+stellar contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/batch_vesting.wasm \
+  --source deployer \
+  --network testnet
+
+# 2. Set admin
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source deployer \
+  --network testnet \
+  -- set_admin --admin <ADMIN_ADDRESS>
+
+# 3. Initialize config with fee_asset (e.g., native XLM on testnet)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source deployer \
+  --network testnet \
+  -- set_config \
+  --admin <ADMIN_ADDRESS> \
+  --config '{
+    "max_batch_size": 100,
+    "max_schedules_per_recipient": 10,
+    "upgrade_timelock": 604800,
+    "fee_asset": "<XLM_SAC_ADDRESS>"
+  }'
+
+# 4. Set fee parameters (fee_asset NOT included — comes from config)
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source deployer \
+  --network testnet \
+  -- set_fee_config \
+  --admin <ADMIN_ADDRESS> \
+  --fee_per_recipient 10000000 \
+  --treasury <TREASURY_ADDRESS>
+```
+
+**Security notes:**
+
+- Use a **Stellar multisig** (M-of-N threshold) for the admin account to prevent single-key compromise
+- The `fee_asset` should be a **liquid, trusted token** (native XLM recommended)
+- Never set `fee_asset` to a custom/illiquid token that depositors cannot easily obtain
+- Document the chosen fee asset in your deployment runbook for transparency
+
 ### 2. Configure CLI Identity
 
 Create an identity for deployment:
+
 ```bash
 stellar keys generate --network testnet deployer
 ```
@@ -115,6 +260,7 @@ stellar keys generate --network testnet deployer
 ### 3. Build the Contract
 
 Navigate to the contract directory and build the release Wasm:
+
 ```bash
 cd contracts/batch-vesting
 cargo build --target wasm32-unknown-unknown --release
@@ -126,6 +272,7 @@ The compiled contract will be available at:
 ### 4. Deploy to Testnet
 
 Deploy the contract and capture the **Contract ID**:
+
 ```bash
 stellar contract deploy \
   --wasm target/wasm32-unknown-unknown/release/batch_vesting.wasm \
@@ -139,9 +286,50 @@ stellar contract deploy \
 ### 5. Frontend Integration
 
 Update your frontend `.env` file with the newly deployed Contract ID:
+
 ```bash
 NEXT_PUBLIC_CONTRACT_ID="C..."
 ```
+
+## SQLite persistence (batch jobs and rate limits)
+
+The API stores batch jobs in SQLite via `better-sqlite3`. By default:
+
+| Variable             | Default                | Purpose                   |
+| -------------------- | ---------------------- | ------------------------- |
+| `JOB_STORE_PATH`     | `./data/jobs.db`       | Durable batch job state   |
+| `RATE_LIMIT_DB_PATH` | `./data/rate-limit.db` | Per-key API rate limiting |
+
+SQLite is configured with:
+- **WAL mode** (Write-Ahead Logging)** for improved read concurrency.
+- **`busy_timeout = 5000ms`** to avoid immediate SQLITE_BUSY errors during concurrent writes.
+- **Retry with jitter** in `updateJob` to gracefully handle transient lock conflicts.
+
+Vercel serverless functions use a read-only filesystem except `/tmp`. Without
+explicit paths, job persistence can fail silently or reset on every cold start.
+
+**Recommended hosting:**
+
+1. **Serverful Node** — long-running `next start`, PM2, or Docker with a writable `data/` directory.
+2. **Persistent volume** — mount a volume at `data/` (Kubernetes PVC, ECS EFS, etc.).
+3. **Managed SQL** — replace SQLite with Turso, Postgres, or another shared store (requires application changes).
+
+**Ephemeral demo on serverless** (data is lost between invocations):
+
+```bash
+export JOB_STORE_PATH=/tmp/jobs.db
+export RATE_LIMIT_DB_PATH=/tmp/rate-limit.db
+```
+
+**Health check** — verify directories are writable before routing traffic:
+
+```bash
+curl -s http://localhost:3000/api/health
+# Returns 200 when job_store and rate_limit paths are writable, 503 otherwise
+```
+
+Set `JOB_STORE_PATH` and `RATE_LIMIT_DB_PATH` in the same environment as your
+API routes (Vercel project settings, Docker env, or systemd unit).
 
 ## Hosting Options
 
@@ -164,6 +352,7 @@ vercel --prod
 ```
 
 **Advantages:**
+
 - Zero-config deployment
 - Automatic scaling
 - Global CDN
@@ -172,44 +361,43 @@ vercel --prod
 
 ### Option 2: Docker Container
 
-For flexibility and multi-platform deployment:
+For flexibility and multi-platform deployment, use the committed
+[`Dockerfile`](../Dockerfile) at the repo root. It is a multi-stage build
+based on `node:22-alpine` that:
 
-```dockerfile
-FROM node:18-alpine
+````dockerfile
+FROM node:22-alpine
 
-WORKDIR /app
+The accompanying `.dockerignore` keeps `node_modules`, `.next`,
+`contracts/target`, `.env*`, and `data/` out of the build context.
 
-# Copy files
-COPY package*.json ./
-COPY . .
-
-# Install dependencies
-RUN npm ci --only=production
-
-# Build
-RUN npm run build
-
-# Set environment
-ENV NODE_ENV=production
-ENV STELLAR_SECRET_KEY=${STELLAR_SECRET_KEY}
-
-# Expose port
-EXPOSE 3000
-
-# Start
-CMD ["npm", "start"]
-```
-
-**Build and push:**
+**Build:**
 ```bash
 docker build -t stellar-bulk-pay:latest .
+````
+
+**Run locally:**
+
+```bash
+docker run --rm -p 3000:3000 \
+  -e NODE_ENV=production \
+  -e STELLAR_SECRET_KEY="$STELLAR_SECRET_KEY" \
+  -v "$(pwd)/data:/app/data" \
+  stellar-bulk-pay:latest
+```
+
+**Push:**
+
+```bash
 docker tag stellar-bulk-pay:latest myregistry/stellar-bulk-pay:latest
 docker push myregistry/stellar-bulk-pay:latest
 ```
 
 **Deploy to container service:**
-- AWS ECS
-- Google Cloud Run
+
+- AWS ECS — mount an EFS volume at `/app/data` if you need durable SQLite.
+- Google Cloud Run — pair with a managed database, or accept that
+  `data/` resets on each container instance.
 - Azure Container Instances
 
 ### Option 3: Traditional VPS
@@ -245,12 +433,14 @@ pm2 startup
 ### 1. Secret Management
 
 **Never:**
+
 - Commit `.env` files
 - Pass secrets as command-line arguments
 - Log secret keys
 - Store in comments or documentation
 
 **Always:**
+
 - Use environment variables
 - Rotate keys regularly
 - Use secret management service
@@ -262,14 +452,14 @@ pm2 startup
 # HTTPS configuration
 server {
     listen 443 ssl http2;
-    
+
     ssl_certificate /path/to/cert.pem;
     ssl_certificate_key /path/to/key.pem;
-    
+
     # Enforce HTTPS
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
-    
+
     location / {
         proxy_pass http://localhost:3000;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -283,14 +473,14 @@ Protect against abuse:
 
 ```typescript
 // Example rate limiter middleware
-import rateLimit from 'express-rate-limit';
+import rateLimit from "express-rate-limit";
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per windowMs
 });
 
-app.use('/api/', apiLimiter);
+app.use("/api/", apiLimiter);
 ```
 
 ### 4. Input Validation
@@ -301,8 +491,8 @@ Always validate at the edge:
 // Validate batch size
 if (payments.length > 10000) {
   return NextResponse.json(
-    { error: 'Batch size exceeds limit' },
-    { status: 400 }
+    { error: "Batch size exceeds limit" },
+    { status: 400 },
   );
 }
 ```
@@ -310,12 +500,14 @@ if (payments.length > 10000) {
 ### 5. Logging Security
 
 **Safe to log:**
+
 - Transaction hashes
 - Public keys (anonymized)
 - Error types (not messages)
 - Timestamps
 
 **Never log:**
+
 - Secret keys
 - Full request/response bodies
 - User IP addresses (unless authorized)
@@ -323,14 +515,14 @@ if (payments.length > 10000) {
 
 ```typescript
 // Safe logging
-console.log('[Payment] Transaction submitted:', {
+console.log("[Payment] Transaction submitted:", {
   hash: txHash,
   recipientCount: payments.length,
   timestamp: new Date().toISOString(),
 });
 
 // Avoid
-console.log('[Payment] Full config:', config); // Might contain secrets
+console.log("[Payment] Full config:", config); // Might contain secrets
 ```
 
 ## Monitoring and Observability
@@ -341,15 +533,15 @@ Track key metrics:
 
 ```typescript
 // Example with StatsD
-import StatsD from 'node-dogstatsd';
+import StatsD from "node-dogstatsd";
 
 const dogstatsd = new StatsD();
 
 // Track batch submissions
-dogstatsd.gauge('batches.size', payments.length);
-dogstatsd.timing('batches.duration', duration);
-dogstatsd.increment('batches.successful');
-dogstatsd.increment('batches.failed');
+dogstatsd.gauge("batches.size", payments.length);
+dogstatsd.timing("batches.duration", duration);
+dogstatsd.increment("batches.successful");
+dogstatsd.increment("batches.failed");
 ```
 
 ### Error Tracking
@@ -367,25 +559,37 @@ Sentry.init({
 // Errors are automatically captured
 ```
 
-### Log Aggregation
+### Log Aggregation & Structured Request Logging
 
-Send logs to centralized service:
+The application includes a structured JSON logger located at `lib/logger.ts` and Next.js middleware that assigns a unique correlation ID (`x-request-id`) to every incoming API request. The logger automatically anonymizes sensitive Stellar public keys (e.g., truncating them to `GB3...XYZ`) and outputs logs in JSON format:
 
-```typescript
-// Example with Winston and ELK Stack
-import winston from 'winston';
-
-const logger = winston.createLogger({
-  transports: [
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
-    new winston.transports.Http({
-      host: 'logs.example.com',
-      path: '/api/logs',
-    }),
-  ],
-});
+```json
+{
+  "level": "info",
+  "timestamp": "2026-05-31T20:00:00.000Z",
+  "requestId": "a4f9c8f0-1e0f-4d77-9db6-9afcd21b8d05",
+  "jobId": "5f8b3c20-3b02-4e63-bd4f-3f6291a13bfd",
+  "publicKey": "GB3...XYZ",
+  "network": "testnet",
+  "msg": "Batch submit job queued and background worker triggered"
+}
 ```
+
+#### Datadog / CloudWatch Integration
+
+1. **Datadog log ingestion**:
+   - Ensure the Next.js runtime environment sends stdout/stderr logs directly.
+   - In Datadog log configuration, enable the JSON parser so fields like `level`, `requestId`, and `jobId` are automatically parsed into searchable attributes.
+   - Configure a mapping for standard attributes: map `level` to status, `timestamp` to date, and `msg` to message.
+
+2. **AWS CloudWatch**:
+   - Structured JSON logs are automatically parsed by CloudWatch logs.
+   - Use CloudWatch Logs Insights to query and trace invocations across serverless instances using `requestId` or `jobId`:
+     ```sql
+     fields @timestamp, level, requestId, jobId, msg
+     | filter requestId = "a4f9c8f0-1e0f-4d77-9db6-9afcd21b8d05"
+     | sort @timestamp asc
+     ```
 
 ## Database Setup (Optional)
 
@@ -449,7 +653,7 @@ function validateCached(payment: PaymentInstruction) {
 For database connections:
 
 ```typescript
-import { Pool } from 'pg';
+import { Pool } from "pg";
 
 const pool = new Pool({
   max: 20,
@@ -464,8 +668,8 @@ Tune batch size based on network conditions:
 
 ```typescript
 // Adaptive batch sizing
-const getBatchSize = (network: 'testnet' | 'mainnet') => {
-  if (network === 'testnet') return 100;
+const getBatchSize = (network: "testnet" | "mainnet") => {
+  if (network === "testnet") return 100;
   // Mainnet might have higher fees, use smaller batches
   return 50;
 };
@@ -623,12 +827,13 @@ pm2 stop stellar-bulk-pay
 git checkout main && npm run build && pm2 start stellar-bulk-pay
 
 # 5. Verify
-curl http://localhost:3000/health
+curl http://localhost:3000/api/health
 ```
 
 ## Support
 
 For deployment issues:
+
 - Check application logs
 - Review Stellar network status
 - Consult DEVELOPMENT.md for debugging

@@ -4,6 +4,7 @@ import Image from "next/image"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { MotionSafe } from "@/components/motion-safe"
+import { fadeInUpMedium, staggerTransition } from "@/lib/motion-tokens"
 
 export interface MetricCardProps {
   title: string
@@ -26,9 +27,8 @@ export function MetricCard({
 
   return (
     <MotionSafe
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.1 }}
+      {...fadeInUpMedium}
+      transition={staggerTransition(index)}
     >
       <Card className="border border-slate-700/50 bg-slate-900/50 shadow-lg hover:shadow-xl hover:border-slate-600/70 transition-all duration-300">
         <CardContent className="p-6">

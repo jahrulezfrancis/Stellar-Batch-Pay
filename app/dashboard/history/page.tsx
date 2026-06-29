@@ -1,18 +1,25 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { MotionSafe } from "@/components/motion-safe";
+import { DashboardWalletEmpty } from "@/components/dashboard/dashboard-wallet-empty";
+import { pageEnter } from "@/lib/motion-tokens";
+import { useWallet } from "@/contexts/WalletContext";
 import {
   HistoryFilterBar,
-  DEFAULT_HISTORY_FILTERS,
   type HistoryFilterValues,
 } from "@/components/dashboard/HistoryFilterBar";
-import { HistoryTable, type HistoricalBatch } from "@/components/dashboard/HistoryTable";
+import { HistoryTable } from "@/components/dashboard/HistoryTable";
 import { Pagination } from "@/components/dashboard/Pagination";
 import { MetricsGrid } from "@/components/dashboard/MetricsGrid";
 import { HistoryExportCenter } from "@/components/dashboard/HistoryExportCenter";
 import { Card, CardContent } from "@/components/ui/card";
-import { dateRangeToFrom } from "@/lib/history-filters";
+import {
+  dateRangeToFrom,
+  parseHistoryFilters,
+} from "@/lib/history-filters";
+import { t } from "@/lib/i18n";
 
 // #360: filter + pagination state is owned by the page so the
 // HistoryTable query and Pagination controls actually react to user
@@ -22,32 +29,29 @@ import { dateRangeToFrom } from "@/lib/history-filters";
 // enterprise-grade but didn't function.
 const DEFAULT_LIMIT = 10;
 
-/** Derive MetricsGrid data from the current page's loaded batches (#412). */
-function computeMetrics(batches: HistoricalBatch[]) {
-  if (batches.length === 0) return undefined;
-
-  const totalBatches = batches.length;
-  const totalPayments = batches.reduce((s, b) => s + b.totalPayments, 0);
-  const totalVolume = batches.reduce((s, b) => s + parseFloat(b.totalAmount ?? "0"), 0);
-  const successful = batches.filter(
-    (b) => b.summary && b.summary.failed === 0 && b.status === "completed"
-  ).length;
-  const completed = batches.filter((b) => b.status === "completed").length;
-  const successRate = completed > 0 ? ((successful / completed) * 100).toFixed(1) + "%" : "0.0%";
-
-  return {
-    totalBatches,
-    totalPayments,
-    successRate,
-    totalVolume: `${totalVolume.toFixed(2)} XLM`,
-  };
-}
-
 export default function HistoryPage() {
-  const [filters, setFilters] = useState<HistoryFilterValues>(DEFAULT_HISTORY_FILTERS);
+  const { publicKey } = useWallet();
+  const searchParams = useSearchParams();
+  const parsedFilters = useMemo(
+    () => parseHistoryFilters(searchParams),
+    [searchParams.toString()],
+  );
+  const [filters, setFilters] = useState<HistoryFilterValues>(parsedFilters);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [loadedBatches, setLoadedBatches] = useState<HistoricalBatch[]>([]);
+  const [aggregateMetrics, setAggregateMetrics] = useState<{
+    totalBatches: number;
+    totalPayments: number;
+    successRate: string;
+    totalVolume: string;
+    failedJobs: number;
+    failedPayments: number;
+  } | undefined>(undefined);
+
+  useEffect(() => {
+    setFilters(parsedFilters);
+    setPage(1);
+  }, [parsedFilters]);
 
   // Reset to page 1 whenever the filters change so a 5-page result
   // doesn't trap the user on page 3 of an empty filtered view.
@@ -60,27 +64,33 @@ export default function HistoryPage() {
     setTotalPages(Math.max(1, nextTotalPages));
   }, []);
 
-  // #412: lift loaded rows up so MetricsGrid can aggregate them.
-  const handleRowsLoad = useCallback((rows: HistoricalBatch[]) => {
-    setLoadedBatches(rows);
+  // Use aggregate metrics from API (computed across all filtered results)
+  const handleAggregateMetricsLoad = useCallback((metrics: {
+    totalBatches: number;
+    totalPayments: number;
+    successRate: string;
+    totalVolume: string;
+    failedJobs: number;
+    failedPayments: number;
+  }) => {
+    setAggregateMetrics(metrics);
   }, []);
 
-  const metricsData = computeMetrics(loadedBatches);
+  const metricsData = aggregateMetrics;
 
   return (
-    <MotionSafe
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25 }}
-      className="space-y-8"
-    >
+    <MotionSafe {...pageEnter} className="space-y-8">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight text-white">Batch Payment History</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-white">{t("history.title")}</h1>
         <p className="text-gray-400">
-          Review past batch transactions, track payment statuses, and access detailed reports.
+          {t("history.description")}
         </p>
       </div>
 
+      {!publicKey ? (
+        <DashboardWalletEmpty />
+      ) : (
+        <>
       <MetricsGrid data={metricsData} />
 
       <Card className="border-[#1F2937] bg-[#121827] shadow-lg">
@@ -99,7 +109,7 @@ export default function HistoryPage() {
             searchFilter={filters.search}
             fromFilter={dateRangeToFrom(filters.dateRange)}
             onPaginationLoad={handlePaginationLoad}
-            onRowsLoad={handleRowsLoad}
+            onAggregateMetricsLoad={handleAggregateMetricsLoad}
           />
           <div className="px-4 pb-4 sm:px-0 sm:pb-0">
             <Pagination
@@ -112,6 +122,8 @@ export default function HistoryPage() {
       </Card>
 
       <HistoryExportCenter />
+        </>
+      )}
     </MotionSafe>
   );
 }

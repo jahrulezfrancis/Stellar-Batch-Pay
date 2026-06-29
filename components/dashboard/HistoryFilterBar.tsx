@@ -10,23 +10,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-
-// #360: filter state is owned by the parent page so the table query
-// and pagination can react to it. Previously each select had only an
-// uncontrolled `defaultValue` and nothing read the user's choices, so
-// the page looked filterable while the underlying API call ignored
-// every change.
-
-export type DateRangeValue = "7days" | "30days" | "90days" | "year"
-export type NetworkValue = "all" | "mainnet" | "testnet"
-export type StatusValue = "all" | "success" | "partial" | "failed"
-
-export interface HistoryFilterValues {
-  search: string
-  dateRange: DateRangeValue
-  network: NetworkValue
-  status: StatusValue
-}
+import {
+  DEFAULT_HISTORY_FILTERS,
+  type DateRangeValue,
+  type HistoryFilterValues,
+  type NetworkValue,
+  type StatusValue,
+} from "@/lib/history-filters"
 
 interface HistoryFilterBarProps {
   values: HistoryFilterValues
@@ -34,12 +24,8 @@ interface HistoryFilterBarProps {
   className?: string
 }
 
-export const DEFAULT_HISTORY_FILTERS: HistoryFilterValues = {
-  search: "",
-  dateRange: "7days",
-  network: "all",
-  status: "all",
-}
+export type { DateRangeValue, HistoryFilterValues, NetworkValue, StatusValue }
+export { DEFAULT_HISTORY_FILTERS }
 
 export function HistoryFilterBar({ values, onChange, className }: HistoryFilterBarProps) {
   const update = <K extends keyof HistoryFilterValues>(
@@ -66,12 +52,12 @@ export function HistoryFilterBar({ values, onChange, className }: HistoryFilterB
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-400">Date Range</label>
+        <label className="text-sm font-medium text-gray-400" htmlFor="history-date-range">Date Range</label>
         <Select
           value={values.dateRange}
           onValueChange={(v) => update("dateRange", v as DateRangeValue)}
         >
-          <SelectTrigger className="bg-[#121827] border-[#1F2937] text-white focus:ring-[#00D98B]/20">
+          <SelectTrigger id="history-date-range" className="bg-[#121827] border-[#1F2937] text-white focus:ring-[#00D98B]/20">
             <SelectValue placeholder="Select Range" />
           </SelectTrigger>
           <SelectContent className="bg-[#121827] border-[#1F2937] text-white">
@@ -84,12 +70,12 @@ export function HistoryFilterBar({ values, onChange, className }: HistoryFilterB
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-400">Network</label>
+        <label className="text-sm font-medium text-gray-400" htmlFor="history-network">Network</label>
         <Select
           value={values.network}
           onValueChange={(v) => update("network", v as NetworkValue)}
         >
-          <SelectTrigger className="bg-[#121827] border-[#1F2937] text-white focus:ring-[#00D98B]/20">
+          <SelectTrigger id="history-network" className="bg-[#121827] border-[#1F2937] text-white focus:ring-[#00D98B]/20">
             <SelectValue placeholder="All Networks" />
           </SelectTrigger>
           <SelectContent className="bg-[#121827] border-[#1F2937] text-white">
@@ -101,12 +87,12 @@ export function HistoryFilterBar({ values, onChange, className }: HistoryFilterB
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-400">Status</label>
+        <label className="text-sm font-medium text-gray-400" htmlFor="history-status">Status</label>
         <Select
           value={values.status}
           onValueChange={(v) => update("status", v as StatusValue)}
         >
-          <SelectTrigger className="bg-[#121827] border-[#1F2937] text-white focus:ring-[#00D98B]/20">
+          <SelectTrigger id="history-status" className="bg-[#121827] border-[#1F2937] text-white focus:ring-[#00D98B]/20">
             <SelectValue placeholder="All Status" />
           </SelectTrigger>
           <SelectContent className="bg-[#121827] border-[#1F2937] text-white">

@@ -31,3 +31,11 @@ next-env.d.ts
 # pnpm
 pnpm-lock.yaml
 contracts/target/
+
+# Stellar contract deploy artifacts
+contract_id_*.txt
+contract_id*.txt
+
+# SQLite data directory
+/data/
+data/*.db

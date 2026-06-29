@@ -21,6 +21,7 @@ export interface VestingRevokedEventPayload {
   pendingVested: string;
   token: string;
   memo: string;
+  batchId: number;
 }
 
 export interface VestingPartiallyRevokedEventPayload {
@@ -60,7 +61,12 @@ function decodeScValValue(value: unknown): unknown {
     return (hi << 64n) + lo;
   }
   if ("u64" in obj) {
-    const parts = obj.u64 as { hi?: number | string; lo?: number | string };
+    const raw = obj.u64;
+    // Snapshot format stores u64 as a plain number; on-chain XDR uses { hi, lo }
+    if (typeof raw === "number" || typeof raw === "string") {
+      return Number(raw);
+    }
+    const parts = raw as { hi?: number | string; lo?: number | string };
     const hi = BigInt(parts.hi ?? 0);
     const lo = BigInt(parts.lo ?? 0);
     return Number((hi << 64n) + lo);
@@ -182,6 +188,7 @@ export function parseVestingRevoked(payload: unknown): VestingRevokedEventPayloa
     pendingVested: toAmountString(fields[1]),
     token: toTokenAddress(fields[2]),
     memo: fields.length > 3 ? toMemo(fields[3]) : "",
+    batchId: fields.length > 4 ? Number(fields[4]) : 0,
   };
 }
 

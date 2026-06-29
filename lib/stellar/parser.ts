@@ -38,11 +38,12 @@ export function parseJSON(content: string): PaymentInstruction[] {
       throw new Error('Expected an array of payment instructions or object with "payments" array');
     }
 
-    return rawInstructions.map((item: Record<string, unknown>) => {
+    return rawInstructions.map((item: Record<string, unknown>, index: number) => {
       const instruction: PaymentInstruction = {
         address: sanitizeValue(String(item.address ?? '')),
         amount: sanitizeValue(String(item.amount ?? '')),
         asset: sanitizeValue(String(item.asset ?? '')),
+        rowIndex: index, // #397: preserve original row index for retry matching
       };
 
       if (item.memo != null && String(item.memo).trim() !== '') {
@@ -97,11 +98,12 @@ export function parseCSV(content: string): PaymentInstruction[] {
     }
   }
 
-  const instructions = parsed.data.map(row => {
+  const instructions = parsed.data.map((row, index) => {
     const instruction: PaymentInstruction = {
       address: sanitizeValue(String(row.address || '')),
       amount: sanitizeValue(String(row.amount || '')),
       asset: sanitizeValue(String(row.asset || '')),
+      rowIndex: index, // #397: preserve original row index for retry matching
     };
 
     if (hasMemo) {

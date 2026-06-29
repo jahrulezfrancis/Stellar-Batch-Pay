@@ -29,6 +29,7 @@ import type {
   JobStatus,
   PaymentInstruction,
   BatchResult,
+  BatchJobNetwork,
 } from "./stellar/types";
 import { escapeLikePattern } from "./history-filters";
 
@@ -48,7 +49,7 @@ export class IdempotencyConflictError extends Error {
 interface BatchJobArgs {
   payments: PaymentInstruction[];
   signedTransactions?: string[];
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   publicKey: string;
 }
 
@@ -84,6 +85,7 @@ function getDb(): Database.Database {
   // WAL mode for better concurrent read performance
   _db.pragma("journal_mode = WAL");
   _db.pragma("foreign_keys = ON");
+  _db.pragma("busy_timeout = 5000");
 
   _db.exec(`
     CREATE TABLE IF NOT EXISTS jobs (
@@ -98,7 +100,8 @@ function getDb(): Database.Database {
       result           TEXT,
       error            TEXT,
       createdAt        TEXT NOT NULL,
-      updatedAt        TEXT NOT NULL
+      updatedAt        TEXT NOT NULL,
+      version          INTEGER NOT NULL DEFAULT 1
     );
 
     -- Index for history queries ordered by creation time
@@ -114,11 +117,32 @@ function getDb(): Database.Database {
     );
 
     CREATE INDEX IF NOT EXISTS idx_idempotency_keys_expiresAt ON idempotency_keys (expiresAt);
+
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
+      id           TEXT PRIMARY KEY,
+      webhookId    TEXT NOT NULL,
+      jobId        TEXT,
+      event        TEXT NOT NULL,
+      status       TEXT NOT NULL,
+      responseCode INTEGER,
+      retryCount   INTEGER NOT NULL DEFAULT 0,
+      error        TEXT,
+      deliveredAt  TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhookId ON webhook_deliveries (webhookId);
+    CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_jobId ON webhook_deliveries (jobId);
   `);
 
   const columns = _db.prepare("PRAGMA table_info(jobs)").all() as Array<{ name: string }>;
   if (!columns.some((column) => column.name === "publicKey")) {
     _db.exec("ALTER TABLE jobs ADD COLUMN publicKey TEXT");
+  }
+  if (!columns.some((column) => column.name === "version")) {
+    _db.exec("ALTER TABLE jobs ADD COLUMN version INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!columns.some((column) => column.name === "signedTransactions")) {
+    _db.exec("ALTER TABLE jobs ADD COLUMN signedTransactions TEXT");
   }
   _db.exec("CREATE INDEX IF NOT EXISTS idx_jobs_publicKey_createdAt ON jobs (publicKey, createdAt DESC)");
 
@@ -137,11 +161,12 @@ interface JobRow {
   completedBatches: number;
   payments: string;
   signedTransactions: string | null;
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   result: string | null;
   error: string | null;
   createdAt: string;
   updatedAt: string;
+  version: number;
 }
 
 function rowToJobState(row: JobRow): JobState {
@@ -165,8 +190,8 @@ function insertJob(db: Database.Database, args: BatchJobArgs & { jobId: string }
   const now = new Date().toISOString();
 
   db.prepare(`
-    INSERT INTO jobs (jobId, publicKey, status, totalBatches, completedBatches, payments, signedTransactions, network, createdAt, updatedAt)
-    VALUES (?, ?, 'queued', 0, 0, ?, ?, ?, ?, ?)
+    INSERT INTO jobs (jobId, publicKey, status, totalBatches, completedBatches, payments, signedTransactions, network, createdAt, updatedAt, version)
+    VALUES (?, ?, 'queued', 0, 0, ?, ?, ?, ?, ?, 1)
   `).run(
     args.jobId,
     args.publicKey,
@@ -193,7 +218,7 @@ function pruneExpiredIdempotencyKeys(db: Database.Database, nowIso: string): voi
  */
 export function createJob(
   payments: PaymentInstruction[],
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   publicKey: string,
   signedTransactions?: string[],
 ): string {
@@ -208,7 +233,7 @@ export function createIdempotentJob<ResponseBody>(args: {
   idempotencyKey: string;
   requestHash: string;
   payments: PaymentInstruction[];
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   publicKey: string;
   signedTransactions?: string[];
   buildResponseBody: (jobId: string) => ResponseBody;
@@ -281,6 +306,38 @@ export function getJob(jobId: string, publicKey?: string): JobState | undefined 
 }
 
 /**
+ * Atomic DB-side increment for completedBatches using optimistic version locking,
+ * consistent with updateJob. Retries up to 3 times on concurrent modification.
+ */
+export function incrementCompletedBatches(jobId: string): void {
+  const db = getDb();
+  const maxAttempts = 3;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const row = db.prepare("SELECT version FROM jobs WHERE jobId = ?").get(jobId) as
+      | { version: number }
+      | undefined;
+    if (!row) return;
+
+    const now = new Date().toISOString();
+    const result = db.prepare(`
+      UPDATE jobs SET
+        completedBatches = completedBatches + 1,
+        updatedAt = ?,
+        version = version + 1
+      WHERE jobId = ? AND version = ?
+    `).run(now, jobId, row.version);
+
+    if (result.changes > 0) return;
+
+    // Version changed under us — retry unless last attempt
+    if (attempt === maxAttempts - 1) {
+      throw new Error(`incrementCompletedBatches: concurrent modification on job ${jobId}`);
+    }
+  }
+}
+
+/**
  * Partially update a job's state.
  */
 export function updateJob(
@@ -288,38 +345,74 @@ export function updateJob(
   patch: Partial<Omit<JobState, "jobId" | "createdAt">>,
 ): void {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM jobs WHERE jobId = ?").get(jobId) as
-    | JobRow
-    | undefined;
-  if (!row) return;
+  let attempts = 0;
+  const maxAttempts = 2;
+  
+  while (attempts < maxAttempts) {
+    try {
+      const run = db.transaction(() => {
+        const row = db.prepare("SELECT * FROM jobs WHERE jobId = ?").get(jobId) as
+          | JobRow
+          | undefined;
+        if (!row) return;
 
-  const now = new Date().toISOString();
+        const now = new Date().toISOString();
+        const nextVersion = row.version + 1;
 
-  db.prepare(
-    `
-    UPDATE jobs SET
-      status           = ?,
-      totalBatches     = ?,
-      completedBatches = ?,
-      result           = ?,
-      error            = ?,
-      updatedAt        = ?
-    WHERE jobId = ?
-  `,
-  ).run(
-    patch.status ?? row.status,
-    patch.totalBatches ?? row.totalBatches,
-    patch.completedBatches ?? row.completedBatches,
-    patch.result !== undefined ? JSON.stringify(patch.result) : row.result,
-    patch.error ?? row.error,
-    now,
-    jobId,
-  );
+        const result = db.prepare(
+          `
+          UPDATE jobs SET
+            status           = ?,
+            totalBatches     = ?,
+            completedBatches = ?,
+            result           = ?,
+            error            = ?,
+            updatedAt        = ?,
+            version          = ?
+          WHERE jobId = ? AND version = ?
+        `,
+        ).run(
+          patch.status ?? row.status,
+          patch.totalBatches ?? row.totalBatches,
+          patch.completedBatches ?? row.completedBatches,
+          patch.result !== undefined ? JSON.stringify(patch.result) : row.result,
+          patch.error ?? row.error,
+          now,
+          nextVersion,
+          jobId,
+          row.version,
+        );
+
+        if (result.changes === 0) {
+          throw new Error(`Concurrent modification error: job ${jobId} was updated by another process.`);
+        }
+      });
+
+      run();
+      return;
+    } catch (error: any) {
+      attempts++;
+      
+      // Check if it's an SQLITE_BUSY error
+      const isSqliteBusy = 
+        error.code === "SQLITE_BUSY" || 
+        (typeof error.message === "string" && error.message.includes("SQLITE_BUSY"));
+      
+      if (!isSqliteBusy || attempts >= maxAttempts) {
+        throw error;
+      }
+      
+      // Wait with jitter before retrying
+      const jitter = Math.random() * 100;
+      const waitMs = 100 + jitter;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
+    }
+  }
 }
 
 export interface JobQueryFilters {
   status?: JobStatus;
-  network?: "testnet" | "mainnet";
+  network?: BatchJobNetwork;
   publicKey?: string;
   /** Case-insensitive substring match on jobId, payments JSON, or result JSON. */
   search?: string;
@@ -327,7 +420,23 @@ export interface JobQueryFilters {
   from?: string;
   /** ISO timestamp — include jobs with createdAt <= to. */
   to?: string;
+  /** Column to sort by (whitelisted: createdAt, updatedAt, status). Default: createdAt. */
+  sort?: "createdAt" | "updatedAt" | "status";
+  /** Sort direction. Default: desc. */
+  order?: "asc" | "desc";
 }
+
+export interface BatchHistorySummary {
+  totalJobs: number;
+  totalPayments: number;
+  totalAmount: number;
+  successfulPayments: number;
+  failedPayments: number;
+  failedJobs: number;
+  successRate: string;
+}
+
+const SORT_COLUMNS = new Set(["createdAt", "updatedAt", "status"]);
 
 function buildJobQueryFilters(opts?: JobQueryFilters): {
   where: string;
@@ -371,6 +480,7 @@ function buildJobQueryFilters(opts?: JobQueryFilters): {
 /**
  * Return all jobs ordered by creation time descending (newest first).
  * Accepts optional filters for the batch history endpoint.
+ * Supports sort and order params with whitelist validation (#606).
  */
 export function getAllJobs(opts?: JobQueryFilters & {
   limit?: number;
@@ -381,51 +491,19 @@ export function getAllJobs(opts?: JobQueryFilters & {
   const limit = opts?.limit ?? 50;
   const offset = opts?.offset ?? 0;
 
+  const sortColumn = opts?.sort && SORT_COLUMNS.has(opts.sort) ? opts.sort : "createdAt";
+  const sortOrder = opts?.order === "asc" ? "ASC" : "DESC";
+
   const rows = db
     .prepare(
-      `SELECT * FROM jobs ${where} ORDER BY createdAt DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM jobs ${where} ORDER BY ${sortColumn} ${sortOrder} LIMIT ? OFFSET ?`,
     )
     .all(...params, limit, offset) as JobRow[];
 
   return rows.map(rowToJobState);
 }
 
-// ---------------------------------------------------------------------------
-// Idempotency key store
-// ---------------------------------------------------------------------------
 
-/**
- * Look up the jobId previously stored for the given idempotency key.
- * Returns undefined when the key is not found or has expired.
- */
-export function getJobIdByIdempotencyKey(key: string): string | undefined {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT jobId, createdAt FROM idempotency_keys WHERE key = ?")
-    .get(key) as { jobId: string; createdAt: string } | undefined;
-
-  if (!row) return undefined;
-
-  const age = Date.now() - new Date(row.createdAt).getTime();
-  if (age > IDEMPOTENCY_TTL_MS) {
-    db.prepare("DELETE FROM idempotency_keys WHERE key = ?").run(key);
-    return undefined;
-  }
-
-  return row.jobId;
-}
-
-/**
- * Persist a mapping from idempotency key to jobId.
- * Silently replaces any existing row with the same key (should never happen
- * in normal usage since keys are checked before job creation).
- */
-export function storeIdempotencyKey(key: string, jobId: string): void {
-  const db = getDb();
-  db.prepare(
-    "INSERT OR REPLACE INTO idempotency_keys (key, jobId, createdAt) VALUES (?, ?, ?)",
-  ).run(key, jobId, new Date().toISOString());
-}
 
 /**
  * Return the total count of jobs (optionally filtered).
@@ -437,4 +515,132 @@ export function countJobs(opts?: JobQueryFilters): number {
     .prepare(`SELECT COUNT(*) as cnt FROM jobs ${where}`)
     .get(...params) as { cnt: number };
   return row.cnt;
+}
+
+/**
+ * Return aggregate history metrics for the current filter set.
+ * Uses SQL-level aggregation so callers don't need to load all pages.
+ */
+export function getBatchHistorySummary(opts?: JobQueryFilters): BatchHistorySummary {
+  const db = getDb();
+  const { where, params } = buildJobQueryFilters(opts);
+  const row = db
+    .prepare(`
+      SELECT
+        COUNT(*) AS totalJobs,
+        COALESCE(SUM(json_array_length(payments)), 0) AS totalPayments,
+        COALESCE(SUM(CAST(json_extract(result, '$.totalAmount') AS REAL)), 0) AS totalAmount,
+        COALESCE(SUM(CAST(json_extract(result, '$.summary.successful') AS INTEGER)), 0) AS successfulPayments,
+        COALESCE(SUM(CAST(json_extract(result, '$.summary.failed') AS INTEGER)), 0) AS failedPayments,
+        COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failedJobs
+      FROM jobs
+      ${where}
+    `)
+    .get(...params) as {
+    totalJobs: number | null;
+    totalPayments: number | null;
+    totalAmount: number | null;
+    successfulPayments: number | null;
+    failedPayments: number | null;
+    failedJobs: number | null;
+  };
+
+  const totalJobs = row.totalJobs ?? 0;
+  const totalPayments = row.totalPayments ?? 0;
+  const totalAmount = row.totalAmount ?? 0;
+  const successfulPayments = row.successfulPayments ?? 0;
+  const failedPayments = row.failedPayments ?? 0;
+  const failedJobs = row.failedJobs ?? 0;
+  const totalProcessedPayments = successfulPayments + failedPayments;
+  const successRate =
+    totalProcessedPayments > 0
+      ? `${((successfulPayments / totalProcessedPayments) * 100).toFixed(1)}%`
+      : "0.0%";
+
+  return {
+    totalJobs,
+    totalPayments,
+    totalAmount,
+    successfulPayments,
+    failedPayments,
+    failedJobs,
+    successRate,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Webhook delivery log
+// ---------------------------------------------------------------------------
+
+export interface WebhookDeliveryLog {
+  webhookId: string;
+  jobId?: string;
+  event: string;
+  status: "success" | "failed";
+  responseCode?: number;
+  retryCount: number;
+  error?: string;
+}
+
+export interface WebhookDelivery extends WebhookDeliveryLog {
+  id: string;
+  deliveredAt: string;
+}
+
+/**
+ * Record the outcome of a single webhook delivery attempt.
+ * Called synchronously from triggerWebhooksWithRetry — uses better-sqlite3's
+ * sync API so no await is required at the call site.
+ */
+export function logWebhookDelivery(entry: WebhookDeliveryLog): void {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO webhook_deliveries (id, webhookId, jobId, event, status, responseCode, retryCount, error, deliveredAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    crypto.randomUUID(),
+    entry.webhookId,
+    entry.jobId ?? null,
+    entry.event,
+    entry.status,
+    entry.responseCode ?? null,
+    entry.retryCount,
+    entry.error ?? null,
+    new Date().toISOString(),
+  );
+}
+
+/**
+ * Retrieve webhook delivery records, optionally filtered by jobId or webhookId.
+ * Returns newest-first, capped at `limit` rows (default 100).
+ */
+export function getWebhookDeliveries(opts?: {
+  jobId?: string;
+  webhookId?: string;
+  limit?: number;
+}): WebhookDelivery[] {
+  const db = getDb();
+  const limit = opts?.limit ?? 100;
+
+  if (opts?.jobId) {
+    return db
+      .prepare(
+        "SELECT * FROM webhook_deliveries WHERE jobId = ? ORDER BY deliveredAt DESC LIMIT ?",
+      )
+      .all(opts.jobId, limit) as WebhookDelivery[];
+  }
+
+  if (opts?.webhookId) {
+    return db
+      .prepare(
+        "SELECT * FROM webhook_deliveries WHERE webhookId = ? ORDER BY deliveredAt DESC LIMIT ?",
+      )
+      .all(opts.webhookId, limit) as WebhookDelivery[];
+  }
+
+  return db
+    .prepare(
+      "SELECT * FROM webhook_deliveries ORDER BY deliveredAt DESC LIMIT ?",
+    )
+    .all(limit) as WebhookDelivery[];
 }

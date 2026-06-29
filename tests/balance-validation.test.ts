@@ -11,14 +11,14 @@ const validIssuer = Keypair.random().publicKey();
 const validAddress = Keypair.random().publicKey();
 
 const mockBalances: HorizonBalance[] = [
-  { asset_type: 'native', balance: '100.0000000' },
+  { asset_type: 'native', balance: '103.0000100' },
   { asset_type: 'credit_alphanum4', asset_code: 'USDC', asset_issuer: validIssuer, balance: '500.0000000' },
 ];
 
 describe('buildBalancesMap', () => {
   test('maps native asset as XLM', () => {
     const map = buildBalancesMap(mockBalances);
-    expect(map.XLM).toBe(100);
+    expect(map.XLM).toBe(103.00001);
   });
 
   test('maps non-native assets as CODE:ISSUER', () => {

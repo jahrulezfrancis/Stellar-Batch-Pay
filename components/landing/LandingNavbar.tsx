@@ -19,7 +19,7 @@ export const LandingNavbar = () => {
 
             <div className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-400">
                 <Link href="/#features" className="hover:text-[#00D4AA] transition-colors">Features</Link>
-                <Link href="/dashboard#documentation" className="hover:text-[#00D4AA] transition-colors">Documentation</Link>
+                <Link href="/docs" className="hover:text-[#00D4AA] transition-colors">Documentation</Link>
                 <Link href="/pricing" className="hover:text-[#00D4AA] transition-colors">Pricing</Link>
                 <Link href="/about" className="hover:text-[#00D4AA] transition-colors">About</Link>
                 <Link href="/contact" className="hover:text-[#00D4AA] transition-colors">Contact</Link>

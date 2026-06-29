@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useWallet } from "@/contexts/WalletContext";
-import { Horizon } from "stellar-sdk";
 import { horizonService } from "@/services/horizon";
 import pLimit from "p-limit";
 
@@ -11,20 +10,75 @@ export type TrustlineCheckResult = {
   hasTrustline: boolean;
 };
 
-// Cache for trustline checks: key = "address:assetCode:assetIssuer"
+export type TrustlineCacheScope = {
+  network?: string;
+  assetCode?: string;
+  assetIssuer?: string;
+};
+
+export type TrustlineRefetchOptions = {
+  forceRefresh?: boolean;
+};
+
+// Cache for trustline checks: key = "network:address:assetCode:assetIssuer"
 const trustlineCache = new Map<string, TrustlineCheckResult>();
 
-function getCacheKey(
+export function getCacheKey(
   address: string,
   assetCode: string,
   assetIssuer?: string,
+  network = "testnet",
 ): string {
-  return `${address}:${assetCode}:${assetIssuer || "native"}`;
+  const normalizedAssetCode = assetCode.trim() || "native";
+  const normalizedAssetIssuer = assetIssuer?.trim() || "native";
+  return `${network}:${address}:${normalizedAssetCode}:${normalizedAssetIssuer}`;
 }
 
-function getAddressesHash(addresses: string[]): string {
-  // Create a hash of sorted addresses for memoization
-  return addresses.slice().sort().join("|");
+export function getCachedTrustlineResult(
+  address: string,
+  assetCode: string,
+  assetIssuer?: string,
+  network = "testnet",
+  options?: TrustlineRefetchOptions,
+): TrustlineCheckResult | undefined {
+  if (options?.forceRefresh) {
+    return undefined;
+  }
+
+  return trustlineCache.get(getCacheKey(address, assetCode, assetIssuer, network));
+}
+
+export function cacheTrustlineResult(
+  address: string,
+  assetCode: string,
+  assetIssuer: string | undefined,
+  network: string,
+  result: TrustlineCheckResult,
+): void {
+  trustlineCache.set(getCacheKey(address, assetCode, assetIssuer, network), result);
+}
+
+export function clearTrustlineCache(scope?: TrustlineCacheScope): void {
+  if (!scope) {
+    trustlineCache.clear();
+    return;
+  }
+
+  const { network, assetCode, assetIssuer } = scope;
+  const normalizedAssetIssuer = assetIssuer?.trim() || "native";
+
+  for (const key of Array.from(trustlineCache.keys())) {
+    const parts = key.split(":");
+    const [keyNetwork, , keyAssetCode, keyAssetIssuer] = parts;
+    const matchesNetwork = !network || keyNetwork === network;
+    const matchesAssetCode = !assetCode || keyAssetCode === assetCode;
+    const matchesAssetIssuer =
+      !assetIssuer || keyAssetIssuer === normalizedAssetIssuer;
+
+    if (matchesNetwork && matchesAssetCode && matchesAssetIssuer) {
+      trustlineCache.delete(key);
+    }
+  }
 }
 
 export function useTrustlines(assetCode: string, assetIssuer?: string) {
@@ -33,8 +87,19 @@ export function useTrustlines(assetCode: string, assetIssuer?: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const normalizedNetwork =
+    network === "testnet" || network === "mainnet" ? network : "testnet";
+
+  useEffect(() => {
+    clearTrustlineCache({
+      network: normalizedNetwork,
+      assetCode,
+      assetIssuer,
+    });
+  }, [assetCode, assetIssuer, normalizedNetwork]);
+
   const checkTrustlines = useCallback(
-    async (addresses: string[]) => {
+    async (addresses: string[], options?: TrustlineRefetchOptions) => {
       if (!publicKey || !network || addresses.length === 0) {
         setResults([]);
         return;
@@ -43,43 +108,59 @@ export function useTrustlines(assetCode: string, assetIssuer?: string) {
       setLoading(true);
       setError(null);
       try {
-        const horizonNetwork =
-          network === "testnet" || network === "mainnet" ? network : "testnet";
-        const server = horizonService.getServer(horizonNetwork);
+        const server = horizonService.getServer(normalizedNetwork);
 
-        // Parallelize with concurrency limit of 10
         const limit = pLimit(10);
-        const trustlineResults: TrustlineCheckResult[] = [];
 
         const checkPromises = addresses.map((address) =>
           limit(async () => {
-            const cacheKey = getCacheKey(address, assetCode, assetIssuer);
+            const cachedResult = getCachedTrustlineResult(
+              address,
+              assetCode,
+              assetIssuer,
+              normalizedNetwork,
+              options,
+            );
 
-            // Check cache first
-            if (trustlineCache.has(cacheKey)) {
-              return trustlineCache.get(cacheKey)!;
+            if (cachedResult) {
+              return cachedResult;
             }
 
             try {
               const account = await server.loadAccount(address);
               const hasTrustline = account.balances.some(
-                (balance: any) =>
+                (balance: {
+                  asset_type: string;
+                  asset_code?: string;
+                  asset_issuer?: string;
+                }) =>
                   balance.asset_type !== "native" &&
                   balance.asset_type !== "liquidity_pool_shares" &&
                   balance.asset_code === assetCode &&
                   balance.asset_issuer === assetIssuer,
               );
               const result: TrustlineCheckResult = { address, hasTrustline };
-              trustlineCache.set(cacheKey, result);
+              cacheTrustlineResult(
+                address,
+                assetCode,
+                assetIssuer,
+                normalizedNetwork,
+                result,
+              );
               return result;
             } catch (err) {
-              // If we can't load the account, assume no trustline
               console.warn(`Failed to load account ${address}:`, err);
               const result: TrustlineCheckResult = {
                 address,
                 hasTrustline: false,
               };
-              trustlineCache.set(cacheKey, result);
+              cacheTrustlineResult(
+                address,
+                assetCode,
+                assetIssuer,
+                normalizedNetwork,
+                result,
+              );
               return result;
             }
           }),
@@ -97,13 +178,12 @@ export function useTrustlines(assetCode: string, assetIssuer?: string) {
         setLoading(false);
       }
     },
-    [publicKey, network, assetCode, assetIssuer],
+    [assetCode, assetIssuer, normalizedNetwork, publicKey, network],
   );
 
-  // Refetch when wallet reconnects (publicKey changes) or when asset changes
   const refetch = useCallback(
-    (addresses: string[]) => {
-      checkTrustlines(addresses);
+    (addresses: string[], options?: TrustlineRefetchOptions) => {
+      void checkTrustlines(addresses, options);
     },
     [checkTrustlines],
   );

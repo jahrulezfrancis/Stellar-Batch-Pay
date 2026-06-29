@@ -26,13 +26,35 @@ jobs:
       - name: Install deps
         run: bun install --frozen-lockfile
 
+      - name: Build production bundle
+        run: bun run build
+
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps chromium
+
+      - name: Start production server
+        run: bun run start &
+
+      - name: Wait for server to be ready
+        run: |
+          echo "Waiting for server on http://localhost:3000..."
+          timeout=60
+          elapsed=0
+          until curl -sf http://localhost:3000 >/dev/null 2>&1; do
+            if [ "$elapsed" -ge "$timeout" ]; then
+              echo "Server did not start within ${timeout}s" >&2
+              exit 1
+            fi
+            sleep 1
+            elapsed=$((elapsed + 1))
+          done
+          echo "Server is ready."
 
       - name: Run Playwright tests
         run: bunx playwright test
         env:
           CI: 'true'
+          E2E_BASE_URL: http://localhost:3000
 
       - name: Upload Playwright report on failure
         if: failure()

@@ -1,0 +1,70 @@
+name: Contract CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contract.yml"
+  push:
+    branches: [main]
+    paths:
+      - "contracts/**"
+      - ".github/workflows/contract.yml"
+
+concurrency:
+  group: contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  batch-vesting:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/stellar
+            contracts/target
+          key: ${{ runner.os }}-cargo-contracts-stellar-21.7.0-${{ hashFiles('contracts/Cargo.lock', 'contracts/Cargo.toml', 'contracts/batch-vesting/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-contracts-stellar-21.7.0-
+            ${{ runner.os }}-cargo-contracts-
+
+      - name: Install Stellar CLI
+        run: |
+          if ! stellar --version 2>/dev/null | grep -q '21.7.0'; then
+            cargo install --locked stellar-cli --version 21.7.0 --features opt
+          else
+            echo "Stellar CLI 21.7.0 already cached."
+          fi
+
+      - name: Run batch-vesting tests
+        working-directory: contracts
+        run: cargo test --manifest-path batch-vesting/Cargo.toml
+
+      - name: Build batch-vesting wasm
+        working-directory: contracts
+        run: cargo build --manifest-path batch-vesting/Cargo.toml --target wasm32-unknown-unknown --release
+
+      - name: Build with Stellar CLI
+        working-directory: contracts/batch-vesting
+        run: stellar contract build --manifest-path Cargo.toml
+
+      - name: Upload batch-vesting WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch-vesting-wasm
+          path: contracts/target/wasm32-unknown-unknown/release/batch_vesting.wasm
+          retention-days: 7

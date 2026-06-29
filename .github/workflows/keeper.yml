@@ -1,0 +1,86 @@
+name: Keeper Bot
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  keeper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --only=production
+
+      - name: Run keeper bot
+        env:
+          SECRET_BACKEND: github
+          KEEPER_SECRET: ${{ secrets.KEEPER_SECRET }}
+          SOROBAN_RPC_URL: ${{ secrets.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org' }}
+          NETWORK_PASSPHRASE: ${{ secrets.NETWORK_PASSPHRASE || 'Test SDF Network ; September 2015' }}
+          CONTRACT_ID: ${{ secrets.CONTRACT_ID }}
+          MAINTENANCE_START_INDEX: ${{ vars.MAINTENANCE_START_INDEX || '0' }}
+          MAINTENANCE_LIMIT: ${{ vars.MAINTENANCE_LIMIT || '10' }}
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+          LOW_BALANCE_THRESHOLD: ${{ vars.LOW_BALANCE_THRESHOLD || '50' }}
+        run: npx ts-node scripts/keeper.ts
+
+      - name: Report failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            const issueNumber = context.issue?.number;
+
+            if (issueNumber) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body: `❌ Keeper bot workflow failed. Check the [workflow run](${runUrl}) for details.`
+              });
+            } else {
+              const title = 'Keeper Bot Failure';
+              const { data: issues } = await github.rest.issues.listForRepo({
+                owner,
+                repo,
+                state: 'open',
+                per_page: 100
+              });
+
+              const existingIssue = issues.find(issue => issue.title === title);
+
+              if (existingIssue) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: existingIssue.number,
+                  body: `❌ Keeper bot workflow failed again. Check the [workflow run](${runUrl}) for details.`
+                });
+              } else {
+                await github.rest.issues.create({
+                  owner,
+                  repo,
+                  title,
+                  body: `❌ Keeper bot workflow failed. Check the [workflow run](${runUrl}) for details.`
+                });
+              }
+            }

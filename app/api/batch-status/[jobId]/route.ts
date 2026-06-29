@@ -11,41 +11,54 @@ import { NextRequest, NextResponse } from "next/server";
 import { StrKey } from "stellar-sdk";
 import { getJob } from "@/lib/job-store";
 import { safeJsonResponse } from "@/lib/safe-json";
+import { applyRateLimit, setRateLimitHeaders } from "@/lib/api-rate-limit";
 
 interface RouteParams {
   params: Promise<{ jobId: string }>;
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
+  const rate = applyRateLimit(request, "batch-status");
+  if (rate.blocked) return rate.response!;
+
   const { jobId } = await params;
   const publicKey = request.nextUrl.searchParams.get("publicKey");
 
   if (!jobId) {
-    return NextResponse.json(
-      { error: "Missing jobId parameter" },
-      { status: 400 },
+    return setRateLimitHeaders(
+      NextResponse.json(
+        { error: "Missing jobId parameter" },
+        { status: 400 },
+      ),
+      rate,
     );
   }
 
   if (!publicKey || !StrKey.isValidEd25519PublicKey(publicKey)) {
-    return NextResponse.json(
-      { error: "A valid publicKey query parameter is required" },
-      { status: 400 },
+    return setRateLimitHeaders(
+      NextResponse.json(
+        { error: "A valid publicKey query parameter is required" },
+        { status: 400 },
+      ),
+      rate,
     );
   }
 
   const job = getJob(jobId, publicKey);
 
   if (!job) {
-    return NextResponse.json(
-      { error: `Job not found: ${jobId}` },
-      { status: 404 },
+    return setRateLimitHeaders(
+      NextResponse.json(
+        { error: `Job not found: ${jobId}` },
+        { status: 404 },
+      ),
+      rate,
     );
   }
 
   // Return a safe, minimal response — no need to echo back the full payments array.
   // Use safeJsonResponse to handle any BigInt values from Stellar SDK results.
-  return safeJsonResponse({
+  return setRateLimitHeaders(safeJsonResponse({
     jobId: job.jobId,
     status: job.status,
     totalBatches: job.totalBatches,
@@ -58,5 +71,5 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     result: job.result,
     // Only present when status === 'failed'
     error: job.error,
-  });
+  }), rate);
 }

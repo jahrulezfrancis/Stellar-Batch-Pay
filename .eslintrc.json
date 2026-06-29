@@ -1,3 +1,20 @@
 {
-  "extends": "next/core-web-vitals"
+  "extends": "next/core-web-vitals",
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "@/components/ui/use-toast",
+            "message": "Please import from '@/lib/toast' instead."
+          },
+          {
+            "name": "sonner",
+            "message": "Please import from '@/lib/toast' instead."
+          }
+        ]
+      }
+    ]
+  }
 }

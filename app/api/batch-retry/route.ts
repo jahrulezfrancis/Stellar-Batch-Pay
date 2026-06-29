@@ -8,23 +8,59 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createJob, getJob } from "@/lib/job-store";
+import { StrKey } from "stellar-sdk";
+import { createIdempotentJob, getJob, IdempotencyConflictError } from "@/lib/job-store";
 import { processJobInBackground } from "@/lib/stellar/batch-worker";
 import { safeJsonResponse } from "@/lib/safe-json";
+import { logger } from "@/lib/logger";
+import { createHash } from "crypto";
+
+/**
+ * Generate a SHA-256 hash of the request body for idempotency checking.
+ * This ensures that the same idempotency key with a different body is rejected.
+ */
+function hashRequestBody(body: { jobId: string; publicKey: string }): string {
+    return createHash("sha256").update(JSON.stringify(body)).digest("hex");
+}
 
 export async function POST(request: NextRequest) {
+    const requestId = request.headers.get("x-request-id");
     try {
-        const body = (await request.json()) as { jobId?: string };
+        const body = (await request.json()) as { jobId?: string; publicKey?: string };
         const jobId = body.jobId;
+        const publicKey = body.publicKey;
+
+        // Extract or derive idempotency key for duplicate retry protection (#550)
+        const idempotencyKey = request.headers.get("Idempotency-Key") 
+            ?? createHash("sha256").update(`${jobId}-${publicKey}`).digest("hex");
 
         if (!jobId || typeof jobId !== "string") {
+            logger.warn({ requestId }, "Missing jobId in retry request");
             return NextResponse.json(
                 { error: "jobId is required" },
                 { status: 400 },
             );
         }
 
+        // The retry job is created under, and only pollable by, a wallet key
+        // (see GET /api/batch-status). Require a valid key up front so retries
+        // are never orphaned from the submitting account (#388).
+        if (
+            !publicKey ||
+            typeof publicKey !== "string" ||
+            !StrKey.isValidEd25519PublicKey(publicKey)
+        ) {
+            logger.warn({ requestId, jobId }, "Missing or invalid publicKey in retry request");
+            return NextResponse.json(
+                { error: "A valid publicKey is required" },
+                { status: 400 },
+            );
+        }
+
+        logger.info({ requestId, jobId }, "Batch retry handler started");
+
         if (process.env.ALLOW_SERVER_SIGNING !== "true") {
+            logger.warn({ requestId, jobId }, "Server-side signing is disabled for retry");
             return NextResponse.json(
                 {
                     error:
@@ -36,6 +72,7 @@ export async function POST(request: NextRequest) {
 
         const secretKey = process.env.STELLAR_SECRET_KEY;
         if (!secretKey) {
+            logger.error({ requestId, jobId }, "STELLAR_SECRET_KEY is not configured for retry");
             return NextResponse.json(
                 {
                     error:
@@ -47,14 +84,25 @@ export async function POST(request: NextRequest) {
 
         const job = getJob(jobId);
         if (!job || !job.result) {
+            logger.warn({ requestId, jobId }, "Batch job not found or not completed");
             return NextResponse.json(
                 { error: "Batch job not found or not completed yet" },
                 { status: 404 },
             );
         }
 
+        // Only the wallet that submitted the original batch may retry it.
+        if (!job.publicKey || job.publicKey !== publicKey) {
+            logger.warn({ requestId, jobId }, "Retry requested by a non-owning wallet");
+            return NextResponse.json(
+                { error: "This batch job does not belong to the provided wallet" },
+                { status: 403 },
+            );
+        }
+
         const failedResults = job.result.results.filter((r) => r.status === "failed");
         if (failedResults.length === 0) {
+            logger.warn({ requestId, jobId }, "No failed payments to retry");
             return NextResponse.json(
                 { error: "No failed payments available for retry" },
                 { status: 400 },
@@ -62,6 +110,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (!job.payments || job.payments.length === 0) {
+            logger.warn({ requestId, jobId }, "Retry not available for pre-signed batches");
             return NextResponse.json(
                 {
                     error:
@@ -71,17 +120,32 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        // #397: Match failed results back to original payments using rowIndex
+        // (the only stable identifier when amounts repeat or the same address
+        // appears multiple times). Fall back to triple-key matching only when
+        // rowIndex is absent (legacy jobs that pre-date this fix).
+        const failedByRowIndex = new Set<number>();
         const failedPaymentsMap = new Map<string, number>();
+
         for (const result of failedResults) {
-            const key = JSON.stringify({
-                address: result.recipient,
-                amount: result.amount,
-                asset: result.asset,
-            });
-            failedPaymentsMap.set(key, (failedPaymentsMap.get(key) ?? 0) + 1);
+            if (result.rowIndex !== undefined) {
+                failedByRowIndex.add(result.rowIndex);
+            } else {
+                const key = JSON.stringify({
+                    address: result.recipient,
+                    amount: result.amount,
+                    asset: result.asset,
+                });
+                failedPaymentsMap.set(key, (failedPaymentsMap.get(key) ?? 0) + 1);
+            }
         }
 
         const failedPayments = job.payments.filter((payment) => {
+            // Prefer index-based match (exact, handles duplicates correctly)
+            if (payment.rowIndex !== undefined) {
+                return failedByRowIndex.has(payment.rowIndex);
+            }
+            // Legacy fallback: triple-key with decrementing counter
             const key = JSON.stringify({
                 address: payment.address,
                 amount: payment.amount,
@@ -96,26 +160,57 @@ export async function POST(request: NextRequest) {
         });
 
         if (failedPayments.length === 0) {
+            logger.error({ requestId, jobId }, "Failed to map failed results to original payments");
             return NextResponse.json(
                 { error: "Could not map failed results back to original payments" },
                 { status: 500 },
             );
         }
 
-        const retryJobId = createJob(failedPayments, job.network, job.publicKey || "");
-        void processJobInBackground(retryJobId, failedPayments, job.network, secretKey);
+        // Generate request hash for idempotency conflict detection
+        const requestHash = hashRequestBody({ jobId, publicKey });
 
-        return safeJsonResponse(
-            {
+        // Use createIdempotentJob to prevent duplicate retry jobs (#550)
+        const idempotentResult = createIdempotentJob({
+            idempotencyKey,
+            requestHash,
+            payments: failedPayments,
+            network: job.network,
+            publicKey: job.publicKey,
+            buildResponseBody: (retryJobId) => ({
                 jobId: retryJobId,
                 originalJobId: job.jobId,
                 failedPayments: failedPayments.length,
                 message: "Retry job queued. Poll /api/batch-status/" + retryJobId + " for progress.",
-            },
-            { status: 202 },
-        );
+            }),
+        });
+
+        // Only trigger background processing if this is not a replayed request
+        if (!idempotentResult.replayed) {
+            void processJobInBackground(
+                idempotentResult.jobId,
+                failedPayments,
+                job.network,
+                secretKey,
+                undefined,
+                requestId || undefined,
+            );
+            logger.info({ requestId, jobId, retryJobId: idempotentResult.jobId }, "Retry job successfully created and triggered");
+        } else {
+            logger.info({ requestId, jobId, retryJobId: idempotentResult.jobId }, "Retry request replayed - returning existing job");
+        }
+
+        return safeJsonResponse(idempotentResult.responseBody, { status: 202 });
     } catch (error: unknown) {
-        console.error("Batch retry error:", error);
+        if (error instanceof IdempotencyConflictError) {
+            logger.warn({ requestId, jobId }, "Idempotency key reused with different body");
+            return NextResponse.json(
+                { error: "Idempotency key already exists for a different request body" },
+                { status: 409 },
+            );
+        }
+
+        logger.error({ requestId }, "Batch retry error", error);
         return safeJsonResponse(
             {
                 error:

@@ -66,10 +66,11 @@ The repository is organized into three main areas:
 
 ## Testing
 
-Run the JavaScript and TypeScript test suite:
+Run the main checks locally before opening a pull request:
 
 ```bash
 npm test
+npm run typecheck
 ```
 
 Run the production build:
@@ -91,6 +92,7 @@ cargo build --manifest-path contracts/Cargo.toml --target wasm32-unknown-unknown
 ```
 
 Before opening a pull request, make sure the relevant local checks complete successfully.
+The primary CI workflow now runs both Vitest and TypeScript typechecking, so `npm test` and `npm run typecheck` should both pass locally before you push.
 
 ## Pull Request Guidelines
 
@@ -107,6 +109,27 @@ Before opening a pull request, make sure the relevant local checks complete succ
 - Avoid mixing refactors with unrelated fixes
 - Do not force-push over someone else’s branch without coordination
 
+## Security Audit Triage
+
+A scheduled `.github/workflows/security-audit.yml` job runs `npm audit` and
+`cargo audit` weekly on `main` and on every PR.
+
+When an audit failure or security advisory lands:
+
+1. Read the advisory linked in the job summary and confirm the affected
+   package is actually reachable from runtime code (vs. a transitive dev-only
+   dep). High/critical runtime advisories are blockers.
+2. Bump the offending package or pin a patched version in `package.json` or
+   `contracts/Cargo.toml`, then update the lockfile.
+3. Run `bun install` then `npm test` and `bun run build` locally. For Cargo
+   bumps, also run `cargo test --manifest-path contracts/Cargo.toml` to catch
+   soroban-sdk breakage.
+4. Review dependency bumps for `stellar`, `next`, `better-sqlite3`, and `react`
+   individually before merging.
+5. If the scheduled audit fails on `main`, the workflow opens an issue with
+   the `security-audit` label. Triage using the steps above, then close the
+   issue.
+
 ## Reporting Issues
 
 When opening an issue or PR, include:
@@ -115,3 +138,7 @@ When opening an issue or PR, include:
 - actual behavior
 - reproduction steps
 - logs, screenshots, or failing test output when available
+
+## Toasts
+
+To ensure a consistent user experience, we have standardized on Sonner for all toast notifications. Please use the wrapper provided in `lib/toast.ts` instead of importing `sonner` or `@/components/ui/use-toast` directly. An ESLint rule is in place to enforce this.

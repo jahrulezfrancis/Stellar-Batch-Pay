@@ -95,6 +95,96 @@ describe('Batch Creation', () => {
       }),
     ).rejects.toThrow('exceeds the Stellar transaction size limit');
   });
+
+  test('allows matching memos in the same transaction batch', async () => {
+    const payments = [
+      { ...samplePayments[0], memo: 'invoice-1', memoType: 'text' as const },
+      { ...samplePayments[1], memo: 'invoice-1', memoType: 'text' as const },
+    ];
+
+    const batches = await createBatches(payments, 100);
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0].payments).toHaveLength(2);
+  });
+
+  test('treats omitted memo type as a text memo for batch consistency', async () => {
+    const payments = [
+      { ...samplePayments[0], memo: 'invoice-1' },
+      { ...samplePayments[1], memo: 'invoice-1', memoType: 'text' as const },
+    ];
+
+    const batches = await createBatches(payments, 100);
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0].payments).toHaveLength(2);
+  });
+
+  test('allows a single memo in a transaction batch', async () => {
+    const payments = [
+      { ...samplePayments[0], memo: 'invoice-1', memoType: 'text' as const },
+      samplePayments[1],
+    ];
+
+    const batches = await createBatches(payments, 100);
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0].payments).toHaveLength(2);
+  });
+
+  test('rejects conflicting memo values in the same transaction batch', async () => {
+    const payments = [
+      { ...samplePayments[0], memo: 'invoice-1', memoType: 'text' as const },
+      { ...samplePayments[1], memo: 'invoice-2', memoType: 'text' as const },
+    ];
+
+    await expect(createBatches(payments, 100)).rejects.toThrow(
+      'Conflicting memos in transaction batch 1: Row 1 has text memo "invoice-1"; Row 2 has text memo "invoice-2"',
+    );
+  });
+
+  test('rejects conflicting memo types in the same transaction batch', async () => {
+    const payments = [
+      { ...samplePayments[0], memo: '12345', memoType: 'id' as const },
+      { ...samplePayments[1], memo: '12345', memoType: 'text' as const },
+    ];
+
+    await expect(createBatches(payments, 100)).rejects.toThrow(
+      'Row 1 has id memo "12345"; Row 2 has text memo "12345"',
+    );
+  });
+
+  test('allows distinct memos after operation-limit splitting', async () => {
+    const payments = [
+      { ...samplePayments[0], memo: 'invoice-1', memoType: 'text' as const },
+      { ...samplePayments[1], memo: 'invoice-2', memoType: 'text' as const },
+    ];
+
+    const batches = await createBatches(payments, 1);
+
+    expect(batches).toHaveLength(2);
+  });
+
+  test('reports preserved upload row numbers for conflicting memos', async () => {
+    const payments = [
+      {
+        ...samplePayments[0],
+        memo: 'invoice-1',
+        memoType: 'text' as const,
+        rowIndex: 4,
+      },
+      {
+        ...samplePayments[1],
+        memo: 'invoice-2',
+        memoType: 'text' as const,
+        rowIndex: 9,
+      },
+    ];
+
+    await expect(createBatches(payments, 100)).rejects.toThrow(
+      'Row 5 has text memo "invoice-1"; Row 10 has text memo "invoice-2"',
+    );
+  });
 });
 
 describe('Asset Parsing', () => {
