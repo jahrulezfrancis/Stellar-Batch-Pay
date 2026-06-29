@@ -22,6 +22,7 @@ import type {
 import { useBatchHistory } from "@/hooks/use-batch-history";
 import { Navbar } from "@/components/landing/navbar";
 import { BatchErrorBoundary } from "@/components/BatchErrorBoundary";
+import { t } from "@/lib/i18n";
 
 type PageState = "upload" | "parsing" | "preview" | "signing" | "results";
 
@@ -175,8 +176,8 @@ export default function Home() {
 
           if (submitData.success) {
             toast({
-              title: "Transaction Successful",
-              description: `Batch ${i + 1} confirmed on Stellar ${network}.`,
+              title: t("demo.toastSuccessTitle"),
+              description: t("demo.toastSuccessDesc", { batchNum: i + 1, network }),
               variant: "default",
             });
             for (const payment of batchPayments) {
@@ -191,8 +192,8 @@ export default function Home() {
             }
           } else {
             toast({
-              title: "Transaction Failed",
-              description: submitData.error || `Batch ${i + 1} failed to submit.`,
+              title: t("demo.toastFailedTitle"),
+              description: submitData.error || t("demo.toastFailedDesc", { batchNum: i + 1 }),
               variant: "destructive",
             });
             for (const payment of batchPayments) {
@@ -337,17 +338,16 @@ export default function Home() {
       <Navbar />
       <div className="max-w-2xl mx-auto px-4 py-8">
         <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">Stellar BatchPay</h1>
+          <h1 className="text-4xl font-bold mb-2">{t("demo.title")}</h1>
           <p className="text-muted-foreground">
-            Send multiple payments on the Stellar blockchain—fast, simple, and
-            secure. Connect your Freighter wallet to sign transactions safely.
+            {t("demo.description")}
           </p>
         </div>
 
         {/* ── Wallet Connection ───────────────────────────────────── */}
         <div className="mb-6 bg-card border border-border rounded-lg p-4 flex items-center justify-between">
           <div className="text-sm text-muted-foreground">
-            {publicKey ? "Wallet connected" : "Connect your wallet to get started"}
+            {publicKey ? t("dashboard.connected") : t("wallet.notConnected")}
           </div>
           <ConnectWalletButton />
         </div>
@@ -361,7 +361,7 @@ export default function Home() {
             role="alert"
             className="bg-destructive/10 border border-destructive text-destructive rounded-lg p-4 mb-6"
           >
-            <p className="font-semibold">Error</p>
+            <p className="font-semibold">{t("demo.error")}</p>
             <p className="text-sm mt-1">{error}</p>
           </div>
         )}
@@ -380,7 +380,7 @@ export default function Home() {
             <div className="space-y-6">
               <div className="bg-card border border-border rounded-lg p-6">
                 <h2 className="text-xl font-semibold mb-4">
-                  Upload Payment File
+                  {t("demo.uploadPaymentFile")}
                 </h2>
                 <FileUpload onFileSelect={handleFileSelect} onValidationResult={setValidationResult} />
               </div>
@@ -394,9 +394,9 @@ export default function Home() {
           {state === "parsing" && (
             <div className="space-y-6">
               <div className="bg-card border border-border rounded-lg p-6 py-12 text-center">
-                <h2 className={`text-xl font-semibold mb-4 text-primary${prefersReducedMotion ? "" : " animate-pulse"}`}>Parsing File...</h2>
+                <h2 className={`text-xl font-semibold mb-4 text-primary${prefersReducedMotion ? "" : " animate-pulse"}`}>{t("demo.parsingFile")}</h2>
                 <div className="text-4xl font-mono mb-2">{parsedCount.toLocaleString()}</div>
-                <p className="text-sm text-muted-foreground">Rows processed</p>
+                <p className="text-sm text-muted-foreground">{t("demo.rowsProcessed")}</p>
               </div>
             </div>
           )}
@@ -405,12 +405,12 @@ export default function Home() {
           {state === "preview" && (
             <div className="space-y-6">
               <div className="bg-card border border-border rounded-lg p-6">
-                <h2 className="text-xl font-semibold mb-4">Batch Preview</h2>
+                <h2 className="text-xl font-semibold mb-4">{t("demo.batchPreview")}</h2>
                 <BatchSummary payments={payments} />
               </div>
 
               <div className="bg-card border border-border rounded-lg p-6">
-                <h3 className="font-semibold mb-4">Network Selection</h3>
+                <h3 className="font-semibold mb-4">{t("demo.networkSelection")}</h3>
                 <div className="flex gap-4">
                   {(["testnet", "mainnet"] as const).map((net) => (
                     <label
@@ -432,8 +432,7 @@ export default function Home() {
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground mt-3">
-                  Make sure your account has sufficient balance on the selected
-                  network.
+                  {t("demo.networkWarning")}
                 </p>
               </div>
 
@@ -442,22 +441,22 @@ export default function Home() {
                   onClick={handleExecute}
                   disabled={isLoading || !publicKey}
                   className="flex-1"
-                  title={!publicKey ? "Connect your Freighter wallet first" : undefined}
+                  title={!publicKey ? t("demo.connectToSubmit") : undefined}
                 >
                   {isLoading
-                    ? "Processing…"
+                    ? t("vesting.processing")
                     : !publicKey
-                      ? "Connect Wallet to Submit"
-                      : "Sign & Submit Batch"}
+                      ? t("demo.connectToSubmit")
+                      : t("demo.signAndSubmit")}
                 </Button>
                 <Button onClick={handleReset} variant="outline">
-                  Change File
+                  {t("demo.changeFile")}
                 </Button>
               </div>
 
               {!publicKey && (
                 <p className="text-xs text-center text-amber-400">
-                  ⚠ You must connect your Freighter wallet before submitting.
+                  {t("demo.mustConnectWarning")}
                 </p>
               )}
             </div>
@@ -469,17 +468,17 @@ export default function Home() {
               <div className="bg-card border border-border rounded-lg p-6">
                 <h2 className="text-xl font-semibold mb-6">
                   {signingProgress.phase === "building"
-                    ? "Building Transactions…"
+                    ? t("demo.buildingTransactions")
                     : signingProgress.phase === "signing"
-                      ? "Waiting for Signature…"
-                      : "Submitting to Network…"}
+                      ? t("demo.waitingForSignature")
+                      : t("demo.submittingToNetwork")}
                 </h2>
 
                 {signingProgress.total > 0 && (
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm text-muted-foreground">
                       <span>
-                        Batch {signingProgress.current} of {signingProgress.total}
+                        {t("demo.batchProgress", { current: signingProgress.current, total: signingProgress.total })}
                       </span>
                       <span>
                         {Math.round(
@@ -503,14 +502,14 @@ export default function Home() {
                 {signingProgress.phase === "building" && (
                   <div className="mt-6 flex items-center justify-center gap-2 text-muted-foreground">
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                    <span className="text-sm">Building unsigned transactions…</span>
+                    <span className="text-sm">{t("demo.buildingUnsigned")}</span>
                   </div>
                 )}
 
                 {signingProgress.phase === "signing" && (
                   <div className="mt-6 p-4 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
                     <p className="text-sm text-indigo-300 text-center">
-                      🔐 Please approve the transaction in your Freighter wallet
+                      {t("demo.approveTransaction")}
                     </p>
                   </div>
                 )}
@@ -518,13 +517,13 @@ export default function Home() {
                 {signingProgress.phase === "submitting" && (
                   <div className="mt-6 flex items-center justify-center gap-2 text-muted-foreground">
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                    <span className="text-sm">Submitting signed transaction…</span>
+                    <span className="text-sm">{t("demo.submittingSigned")}</span>
                   </div>
                 )}
               </div>
 
               <Button onClick={handleReset} variant="outline" className="w-full">
-                Cancel & Start Over
+                {t("demo.cancelAndStartOver")}
               </Button>
             </div>
           )}
@@ -533,12 +532,12 @@ export default function Home() {
           {state === "results" && result && (
             <div className="space-y-6">
               <div className="bg-card border border-border rounded-lg p-6">
-                <h2 className="text-xl font-semibold mb-4">Batch Results</h2>
+                <h2 className="text-xl font-semibold mb-4">{t("demo.batchResults")}</h2>
                 <ResultsDisplay result={result} onRetry={handleRetry} />
               </div>
 
               <Button onClick={handleReset} className="w-full">
-                Submit New Batch
+                {t("demo.submitNewBatch")}
               </Button>
             </div>
           )}

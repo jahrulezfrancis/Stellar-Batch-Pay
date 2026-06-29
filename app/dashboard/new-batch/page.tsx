@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileUpload } from "@/components/file-upload";
-import { DashboardWalletEmpty } from "@/components/dashboard/dashboard-wallet-empty";
+
 import { MotionSafe } from "@/components/motion-safe";
 import { motionCssDuration, stepEnter } from "@/lib/motion-tokens";
 import { BatchDryRun } from "@/components/dashboard/BatchDryRun";
@@ -28,9 +28,82 @@ import { BatchErrorBoundary } from "@/components/BatchErrorBoundary";
 import { BatchFlowProvider, useBatchFlow } from "@/contexts/BatchFlowContext";
 import { t } from "@/lib/i18n";
 
+const NEW_BATCH_STATE_KEY = "new_batch_state";
+
+async function buildBatchSubmitIdempotencyKey(body: {
+  payments?: PaymentInstruction[];
+  network: "testnet" | "mainnet";
+  publicKey: string;
+}) {
+  const canonicalBody = canonicalizeIdempotencyPayload({
+    payments: body.payments ?? null,
+    network: body.network,
+    publicKey: body.publicKey,
+  });
+
+  const webCrypto = globalThis.crypto;
+
+  if (!webCrypto?.subtle) {
+    return webCrypto?.randomUUID() ?? `${Date.now()}-${Math.random()}`;
+  }
+
+  const encoded = new TextEncoder().encode(canonicalBody);
+  const digest = await webCrypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function NewBatchPaymentPageContent() {
-  const { publicKey } = useWallet();
-  const {
+  const [step, setStep] = useState(1);
+  const [selectedNetwork, setSelectedNetwork] = useState<"testnet" | "mainnet">(
+    "testnet",
+  );
+  const [file, setFile] = useState<File | null>(null);
+  const [fileFormat, setFileFormat] = useState<"json" | "csv" | null>(null);
+  const [validationResult, setValidationResult] =
+    useState<ParsedPaymentFile | null>(null);
+  const [validationError, setValidationError] = useState("");
+  const [summary, setSummary] = useState<{
+    recipientCount: number;
+    validCount: number;
+    invalidCount: number;
+    totalAmount: string;
+    assetBreakdown: Record<string, number>;
+  } | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [result, setResult] = useState<BatchResult | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobStatus>("queued");
+  const [completedBatches, setCompletedBatches] = useState(0);
+  const [totalBatches, setTotalBatches] = useState(0);
+  const [manualPayments, setManualPayments] = useState<PaymentInstruction[]>(
+    [],
+  );
+  const [entryMode, setEntryMode] = useState<"upload" | "manual">("upload");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasLoadedSavedStateRef = useRef(false);
+
+  // Store only non-sensitive flow metadata. Recipient addresses, amounts, and
+  // validation details must never be persisted in browser storage.
+  useEffect(() => {
+    if (!hasLoadedSavedStateRef.current) return;
+
+    if (result || jobStatus === "completed") {
+      sessionStorage.removeItem(NEW_BATCH_STATE_KEY);
+      return;
+    }
+
+    const stateToSave = {
+      step: jobId ? step : 1,
+      selectedNetwork,
+      entryMode,
+      jobId,
+      jobStatus,
+    };
+
+    sessionStorage.setItem(NEW_BATCH_STATE_KEY, JSON.stringify(stateToSave));
+  }, [
     step,
     setStep,
     file,

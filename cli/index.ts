@@ -57,7 +57,7 @@ Usage:
 Commands:
   validate          Parse + validate an input file. Exits non-zero on errors.
   build             Validate + create batches. Prints batch summaries.
-  submit            Build + submit batches. Requires STELLAR_SECRET_KEY.
+  submit            (Disabled) Build + submit batches. Requires STELLAR_SECRET_KEY.
   help              Print this message.
 
 Flags:
@@ -223,20 +223,11 @@ async function cmdSubmit(args: ParsedArgs): Promise<number> {
   // and signer that the dapp gets from Freighter. That's a separate
   // PR (#211-style follow-up). Until then, the CLI exits with a
   // clear actionable message instead of pretending to submit.
-  await emitResult(
-    {
-      command: 'submit',
-      stage: 'built',
-      input: args.input,
-      batches: summaries.length,
-      summaries,
-      note:
-        'CLI-side submission is implemented as a follow-up. ' +
-        'Built batches are ready; submit via the dapp UI for now.',
-    },
-    args.output,
+  process.stderr.write(
+    'NOT_IMPLEMENTED: CLI-side submission is implemented as a follow-up. ' +
+    'Built batches are ready; submit via the dapp UI for now.\n'
   );
-  return 0;
+  return 2;
 }
 
 export async function run(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
