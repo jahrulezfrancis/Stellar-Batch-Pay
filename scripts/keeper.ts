@@ -26,6 +26,8 @@ const CONTRACT_ID = process.env.CONTRACT_ID;
 const U32_MAX = 2 ** 32 - 1;
 const MAINTENANCE_LIMIT = readU32Env("MAINTENANCE_LIMIT", 10);
 const BUMP_THRESHOLD_DAYS = 7;
+const LEDGERS_PER_DAY = 17280; // ~5 s per ledger on Stellar
+const BUMP_THRESHOLD_LEDGERS = BUMP_THRESHOLD_DAYS * LEDGERS_PER_DAY;
 const ALERT_WEBHOOK_URL = process.env.ALERT_WEBHOOK_URL;
 const LOW_BALANCE_THRESHOLD = Number(process.env.LOW_BALANCE_THRESHOLD || "50"); // XLM
 
@@ -120,7 +122,7 @@ async function checkBalance(_server: SorobanRpc.Server, publicKey: string) {
 
 // ── Main loop ──────────────────────────────────────────────────────────────
 
-async function main() {
+export async function main() {
   // Fetch the keeper secret from the configured backend (#257).
   // Set SECRET_BACKEND=aws|github|env (default: env with a warning).
   const secrets = await createSecretsProvider();
@@ -164,10 +166,12 @@ async function main() {
     await checkBalance(server, keeperKeypair.publicKey());
 
     console.log("Keeper Bot finished successfully.");
+    process.exit(0);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error("Keeper execution failed:", errorMsg);
     await sendAlert(`Critical failure in Keeper Bot: ${errorMsg}`);
+    process.exit(1);
   }
 }
 
@@ -360,4 +364,4 @@ async function maintainRecipientWindow(
   return true;
 }
 
-main();
+main().catch(() => process.exit(1));

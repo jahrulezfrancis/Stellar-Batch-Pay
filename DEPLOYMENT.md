@@ -179,6 +179,38 @@ export MAINTENANCE_LIMIT=10
 export KEEPER_STATE_PATH=/mnt/data/keeper-state.json
 ```
 
+### Keeper Bot Exit Codes
+
+The keeper script (`scripts/keeper.ts`) uses explicit exit codes so CI
+workflows correctly report success or failure.
+
+| Exit Code | Meaning |
+| --------- | ------- |
+| `0` | Keeper completed successfully — all recipients maintained, instance bumped, balance checked. |
+| `1` | Keeper encountered a fatal error (missing config, RPC failure, transaction error, etc.). The alert webhook fires **before** the non-zero exit. |
+
+**CI behaviour:**
+
+- GitHub Actions treats exit code `0` as success (green checkmark) and any
+  non-zero code as failure (red cross).
+- The `Report failure` step in `.github/workflows/keeper.yml` runs on
+  `if: failure()` and writes a job summary with the contract ID and run
+  metadata, then creates or comments on a GitHub issue.
+
+**Testing exit codes locally:**
+
+```bash
+# Success path (valid env)
+npx ts-node scripts/keeper.ts; echo "exit: $?"
+
+# Failure path (missing CONTRACT_ID)
+CONTRACT_ID= npx ts-node scripts/keeper.ts; echo "exit: $?"
+# → prints exit: 1
+```
+
+The `main` function is exported for programmatic testing via subprocess
+spawn.
+
 ---
 
 ## Smart Contract Deployment
