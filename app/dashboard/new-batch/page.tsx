@@ -25,37 +25,265 @@ import { ManualBatchEntry } from "@/components/dashboard/ManualBatchEntry";
 import { BatchReview } from "@/components/dashboard/BatchReview";
 import Link from "next/link";
 import { BatchErrorBoundary } from "@/components/BatchErrorBoundary";
-import { BatchFlowProvider, useBatchFlow } from "@/contexts/BatchFlowContext";
-import { t } from "@/lib/i18n";
+import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
 
-function NewBatchPaymentPageContent() {
-  const { publicKey } = useWallet();
-  const {
+const NEW_BATCH_STATE_KEY = "new_batch_state";
+
+async function buildBatchSubmitIdempotencyKey(body: {
+  payments?: PaymentInstruction[];
+  network: "testnet" | "mainnet";
+  publicKey: string;
+}) {
+  const canonicalBody = canonicalizeIdempotencyPayload({
+    payments: body.payments ?? null,
+    network: body.network,
+    publicKey: body.publicKey,
+  });
+
+  const webCrypto = globalThis.crypto;
+
+  if (!webCrypto?.subtle) {
+    return webCrypto?.randomUUID() ?? `${Date.now()}-${Math.random()}`;
+  }
+
+  const encoded = new TextEncoder().encode(canonicalBody);
+  const digest = await webCrypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export default function NewBatchPaymentPage() {
+  const [step, setStep] = useState(1);
+  const [selectedNetwork, setSelectedNetwork] = useState<"testnet" | "mainnet">(
+    "testnet",
+  );
+  const [file, setFile] = useState<File | null>(null);
+  const [fileFormat, setFileFormat] = useState<"json" | "csv" | null>(null);
+  const [validationResult, setValidationResult] =
+    useState<ParsedPaymentFile | null>(null);
+  const [validationError, setValidationError] = useState("");
+  const [summary, setSummary] = useState<{
+    recipientCount: number;
+    validCount: number;
+    invalidCount: number;
+    totalAmount: string;
+    assetBreakdown: Record<string, number>;
+  } | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [result, setResult] = useState<BatchResult | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<JobStatus>("queued");
+  const [completedBatches, setCompletedBatches] = useState(0);
+  const [totalBatches, setTotalBatches] = useState(0);
+  const [manualPayments, setManualPayments] = useState<PaymentInstruction[]>(
+    [],
+  );
+  const [entryMode, setEntryMode] = useState<"upload" | "manual">("upload");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasLoadedSavedStateRef = useRef(false);
+
+  // Store only non-sensitive flow metadata. Recipient addresses, amounts, and
+  // validation details must never be persisted in browser storage.
+  useEffect(() => {
+    if (!hasLoadedSavedStateRef.current) return;
+
+    if (result || jobStatus === "completed") {
+      sessionStorage.removeItem(NEW_BATCH_STATE_KEY);
+      return;
+    }
+
+    const stateToSave = {
+      step: jobId ? step : 1,
+      selectedNetwork,
+      entryMode,
+      jobId,
+      jobStatus,
+    };
+
+    sessionStorage.setItem(NEW_BATCH_STATE_KEY, JSON.stringify(stateToSave));
+  }, [
     step,
-    setStep,
-    file,
-    fileFormat,
-    validationResult,
-    validationError,
-    summary,
-    isSubmitting,
-    result,
+    selectedNetwork,
+    entryMode,
     jobId,
     jobStatus,
-    completedBatches,
-    totalBatches,
-    manualPayments,
-    setManualPayments,
-    entryMode,
-    setEntryMode,
-    batchMetaLoading,
-    estimatedFees,
-    handleManualContinue,
-    handleFileSelect,
-    handleRestore,
-    loadBatchMeta,
-  } = useBatchFlow();
+    result,
+  ]);
 
+  // Restore state from sessionStorage
+  const handleRestore = (saved: any) => {
+    if (saved.selectedNetwork) setSelectedNetwork(saved.selectedNetwork);
+    if (saved.entryMode) setEntryMode(saved.entryMode);
+    if (saved.jobId) {
+      setJobId(saved.jobId);
+      setJobStatus(saved.jobStatus ?? "queued");
+      setStep(saved.step ?? 4);
+    } else {
+      setStep(1);
+      setValidationResult(null);
+      setSummary(null);
+      setManualPayments([]);
+    }
+  };
+
+  useEffect(() => {
+    const saved = sessionStorage.getItem(NEW_BATCH_STATE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        handleRestore(parsed);
+      } catch (e) {
+        console.error("Failed to restore new_batch_state:", e);
+        sessionStorage.removeItem(NEW_BATCH_STATE_KEY);
+      } finally {
+        hasLoadedSavedStateRef.current = true;
+      }
+    } else {
+      hasLoadedSavedStateRef.current = true;
+    }
+  }, []);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback(
+    (id: string, ownerPublicKey: string) => {
+      stopPolling();
+      pollRef.current = setInterval(async () => {
+        try {
+          const params = new URLSearchParams({ publicKey: ownerPublicKey });
+          const res = await fetch(
+            `/api/batch-status/${id}?${params.toString()}`,
+          );
+          if (!res.ok) return;
+          const data = await res.json();
+          setJobStatus(data.status);
+          setCompletedBatches(data.completedBatches ?? 0);
+          setTotalBatches(data.totalBatches ?? 0);
+          if (data.status === "completed") {
+            stopPolling();
+            setResult(data.result ?? null);
+            setIsSubmitting(false);
+            setStep(4);
+            sessionStorage.removeItem(NEW_BATCH_STATE_KEY);
+            toast.success("Batch submitted successfully");
+          } else if (data.status === "failed") {
+            stopPolling();
+            setIsSubmitting(false);
+            toast.error(data.error ?? "Batch processing failed");
+          }
+        } catch {
+          // ignore transient fetch errors
+        }
+      }, 2000);
+    },
+    [stopPolling],
+  );
+
+  useEffect(() => () => stopPolling(), [stopPolling]);
+
+  useEffect(() => {
+    if (!jobId || !publicKey || isSubmitting || result) return;
+    if (jobStatus === "completed" || jobStatus === "failed") return;
+
+    setIsSubmitting(true);
+    startPolling(jobId, publicKey);
+  }, [jobId, publicKey, isSubmitting, result, jobStatus, startPolling]);
+
+  const [skippedIndices, setSkippedIndices] = useState<number[]>([]);
+  const [convertedIndices, setConvertedIndices] = useState<number[]>([]);
+  const [batchMeta, setBatchMeta] = useState<BatchMetaEntry[] | undefined>();
+  const [batchMetaLoading, setBatchMetaLoading] = useState(false);
+  const { publicKey, signTx } = useWallet();
+  const allowServerSigning =
+    process.env.NEXT_PUBLIC_ALLOW_SERVER_SIGNING === "true";
+
+  const loadBatchMeta = useCallback(
+    async (payments: PaymentInstruction[]) => {
+      if (!publicKey || payments.length === 0) {
+        setBatchMeta(undefined);
+        return;
+      }
+
+      setBatchMetaLoading(true);
+      try {
+        const response = await fetch("/api/batch-build", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            payments,
+            network: selectedNetwork,
+            publicKey,
+          }),
+        });
+        const data = await response.json();
+        if (response.ok) {
+          setBatchMeta(data.batchMeta);
+        } else {
+          setBatchMeta(undefined);
+        }
+      } catch {
+        setBatchMeta(undefined);
+      } finally {
+        setBatchMetaLoading(false);
+      }
+    },
+    [publicKey, selectedNetwork],
+  );
+
+  const handleSkipToggle = (index: number) => {
+    setSkippedIndices((prev) => {
+      const next = [...prev];
+      const idx = next.indexOf(index);
+      if (idx >= 0) {
+        next.splice(idx, 1);
+      } else {
+        next.push(index);
+      }
+      return next;
+    });
+  };
+
+  const handleConvertToggle = (index: number) => {
+    setConvertedIndices((prev) => {
+      const next = [...prev];
+      const idx = next.indexOf(index);
+      if (idx >= 0) {
+        next.splice(idx, 1);
+      } else {
+        next.push(index);
+      }
+      return next;
+    });
+  };
+
+  const handleRetryFailed = (failedPayments: PaymentInstruction[]) => {
+    const rows = failedPayments.map((instruction, index) => ({
+      rowNumber: index + 1,
+      instruction,
+      valid: true,
+    }));
+
+    setValidationResult({
+      rows,
+      validPayments: failedPayments,
+      invalidCount: 0,
+    });
+    setSummary(getBatchSummary(failedPayments));
+    setSkippedIndices([]);
+    setConvertedIndices([]);
+    setStep(2);
+    toast.success(
+      "Loaded failed payments for retry. Review before resubmitting.",
+    );
+  };
+
+  // UX: Warn before closing tab during submission (#287)
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (isSubmitting) {
@@ -113,16 +341,29 @@ function NewBatchPaymentPageContent() {
         <p className="text-slate-400">{t("newBatch.description")}</p>
       </div>
 
-      {!publicKey ? (
-        <DashboardWalletEmpty />
-      ) : (
-        <BatchErrorBoundary
-          storageKey="new_batch_state"
-          onRestore={handleRestore}
-        >
-          <div className="mb-8 pt-4">
-            <div className="flex items-center justify-between relative max-w-2xl mx-auto">
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-0.5 bg-slate-800 -z-10" />
+      {/* Wallet Connection */}
+      <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-4 flex items-center justify-between">
+        <div className="text-sm text-slate-400">
+          {publicKey
+            ? "Wallet connected"
+            : "Connect your wallet to get started"}
+        </div>
+        <ConnectWalletButton />
+      </div>
+
+      <BatchErrorBoundary
+        storageKey={NEW_BATCH_STATE_KEY}
+        onRestore={handleRestore}
+      >
+        {/* Stepper */}
+        <div className="mb-8 pt-4">
+          <div className="flex items-center justify-between relative max-w-2xl mx-auto">
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-0.5 bg-slate-800 -z-10" />
+            <div
+              className="absolute left-0 top-1/2 -translate-y-1/2 h-0.5 bg-emerald-500 -z-10 transition-all duration-300"
+              style={{ width: `${((step - 1) / (steps.length - 1)) * 100}%` }}
+            />
+            {steps.map((s) => (
               <div
                 className={`absolute left-0 top-1/2 -translate-y-1/2 h-0.5 bg-emerald-500 -z-10 transition-all ${motionCssDuration.fast}`}
                 style={{
@@ -434,7 +675,13 @@ function NewBatchPaymentPageContent() {
               <div className="flex flex-wrap gap-3 pt-4">
                 {jobId && (
                   <Button
-                    asChild
+                    onClick={() => {
+                      sessionStorage.removeItem(NEW_BATCH_STATE_KEY);
+                      setStep(1);
+                      setResult(null);
+                      setJobId(null);
+                      setJobStatus("queued");
+                    }}
                     variant="outline"
                     className="border-slate-800 text-slate-300 hover:bg-slate-800"
                   >

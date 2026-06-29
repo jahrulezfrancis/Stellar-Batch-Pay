@@ -321,6 +321,46 @@ import { StellarService } from 'stellar-batch-pay/lib/stellar/server.js';
 
 ---
 
+## What Information You Get Back
+
+After submitting, you'll see:
+
+- **Total recipients processed**: How many people got paid
+- **Total amount sent**: Combined value of all payments
+- **Number of transactions**: How many blockchain transactions were used
+- **Per-recipient status**: For each person, did they get paid or was there an error?
+- **Transaction IDs**: The blockchain reference for each transaction (so you can verify on a blockchain explorer)
+- **Timestamp**: When everything was processed
+
+For vesting workflows, you should also track contract-level events/state such as deposit execution, recipient vesting records, unlock timestamp, and successful claims.
+
+---
+
+## Common Questions
+
+**Q: What if one payment fails?**
+A: Failed payments are reported individually in the batch result. You can review the errors and retry only the failed entries without resubmitting the full batch.
+
+**Q: Can I cancel payments?**
+A: No, once submitted to the blockchain, payments can't be undone. This is why testnet exists — test first!
+
+**Q: How long does it take?**
+A: Usually 3-5 seconds per transaction. So 250 payments would take about 10-15 seconds.
+
+**Q: What if my payment file has 500 recipients?**
+A: The system automatically splits it into 5 transactions (500 ÷ 100) and processes them all.
+
+**Q: Can I use different types of money?**
+A: Yes! In the same batch, you can send some people XLM, others USDC, others any asset on Stellar.
+
+**Q: Is this secure?**
+A: Your secret key never leaves your computer/browser. All processing happens locally or on your own server.
+
+**Q: Does BatchPay store uploaded recipient or payroll data in browser storage?**
+A: No. The new batch flow only keeps non-sensitive draft metadata, such as the current step and active job id, in session storage for crash recovery. Recipient addresses, payment amounts, validation results, and batch summaries are not persisted in browser storage and the draft metadata is cleared after successful submission or wallet disconnect.
+
+---
+
 ## Webhook Integration
 
 Stellar BatchPay supports outgoing webhooks to notify external systems when batch operations complete. All webhook requests include HMAC-SHA256 signatures for security.
