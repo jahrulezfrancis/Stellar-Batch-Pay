@@ -16,6 +16,7 @@ import type {
   JobStatus,
   PaymentInstruction,
   BatchMetaEntry,
+  UploadedPaymentInstruction,
 } from "@/lib/stellar/types";
 
 async function buildBatchSubmitIdempotencyKey(body: {
@@ -93,7 +94,7 @@ interface BatchFlowContextType {
   // Actions
   onSkipToggle: (index: number) => void;
   onConvertToggle: (index: number) => void;
-  handleRetryFailed: (failedPayments: PaymentInstruction[]) => void;
+  handleRetryFailed: (failedPayments: UploadedPaymentInstruction[]) => void;
   handleFileSelect: (selectedFile: File, format: "json" | "csv") => Promise<void>;
   handleManualContinue: () => void;
   loadBatchMeta: (payments: PaymentInstruction[]) => Promise<void>;
@@ -148,34 +149,43 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
 
   // Sync state to sessionStorage to prevent data loss on render crashes
   useEffect(() => {
-    const stateToSave = {
-      step,
-      selectedNetwork,
-      validationResult,
-      summary,
-      manualPayments,
-      entryMode,
-    };
-    if (validationResult || manualPayments.length > 0) {
-      sessionStorage.setItem("new_batch_state", JSON.stringify(stateToSave));
+    if (result || jobStatus === "completed") {
+      sessionStorage.removeItem("new_batch_state");
+      return;
     }
+
+    const stateToSave = {
+      step: jobId ? step : 1,
+      selectedNetwork,
+      entryMode,
+      jobId,
+      jobStatus,
+    };
+
+    sessionStorage.setItem("new_batch_state", JSON.stringify(stateToSave));
   }, [
     step,
     selectedNetwork,
-    validationResult,
-    summary,
-    manualPayments,
     entryMode,
+    jobId,
+    jobStatus,
+    result,
   ]);
 
   // Restore state from sessionStorage
   const handleRestore = useCallback((saved: any) => {
-    if (saved.step) setStep(saved.step);
     if (saved.selectedNetwork) setSelectedNetwork(saved.selectedNetwork);
-    if (saved.validationResult) setValidationResult(saved.validationResult);
-    if (saved.summary) setSummary(saved.summary);
-    if (saved.manualPayments) setManualPayments(saved.manualPayments);
     if (saved.entryMode) setEntryMode(saved.entryMode);
+    if (saved.jobId) {
+      setJobId(saved.jobId);
+      setJobStatus(saved.jobStatus ?? "queued");
+      setStep(saved.step ?? 4);
+    } else {
+      setStep(1);
+      setValidationResult(null);
+      setSummary(null);
+      setManualPayments([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -186,6 +196,7 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
         handleRestore(parsed);
       } catch (e) {
         console.error("Failed to restore new_batch_state:", e);
+        sessionStorage.removeItem("new_batch_state");
       }
     }
   }, [handleRestore]);
@@ -336,7 +347,7 @@ export function BatchFlowProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const handleRetryFailed = useCallback((failedPayments: PaymentInstruction[]) => {
+  const handleRetryFailed = useCallback((failedPayments: UploadedPaymentInstruction[]) => {
     const rows = failedPayments.map((instruction, index) => ({
       rowNumber: index + 1,
       instruction,

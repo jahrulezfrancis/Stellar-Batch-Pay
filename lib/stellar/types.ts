@@ -37,9 +37,17 @@ export interface PaymentInstruction {
   rowIndex?: number; // #397: original row index from upload, used for retry matching
 }
 
+/**
+ * PaymentInstruction with a guaranteed rowIndex, used for files and lists
+ * parsed from uploads to enable stable retry mapping.
+ */
+export interface UploadedPaymentInstruction extends PaymentInstruction {
+  rowIndex: number;
+}
+
 export interface PaymentValidationRow {
   rowNumber: number;
-  instruction: PaymentInstruction;
+  instruction: UploadedPaymentInstruction;
   valid: boolean;
   isDuplicate?: boolean;
   error?: string;
@@ -47,7 +55,7 @@ export interface PaymentValidationRow {
 
 export interface ParsedPaymentFile {
   rows: PaymentValidationRow[];
-  validPayments: PaymentInstruction[];
+  validPayments: UploadedPaymentInstruction[];
   invalidCount: number;
 }
 

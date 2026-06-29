@@ -30,7 +30,7 @@ export function FileUpload({ onFileSelect, onValidationResult, disabled }: FileU
         onValidationResult({
           rows: [{
             rowNumber: 1,
-            instruction: { address: '', amount: '', asset: '' },
+            instruction: { address: '', amount: '', asset: '', rowIndex: -1 },
             valid: false,
             error: err instanceof Error ? err.message : 'Failed to parse file',
           }],

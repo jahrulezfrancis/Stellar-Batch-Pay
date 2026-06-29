@@ -71,7 +71,7 @@ export default function Home() {
               setValidationResult({
                 rows: result.errors.map(err => ({
                   rowNumber: err.row,
-                  instruction: { address: '', amount: '', asset: '' },
+                  instruction: { address: '', amount: '', asset: '', rowIndex: err.row - 2 },
                   valid: false,
                   isDuplicate: false,
                   error: err.message,
@@ -296,7 +296,7 @@ export default function Home() {
   }, [payments]);
 
   // Restore on mount or boundary restore trigger
-  const handleRestore = (restoredPayments: PaymentInstruction[]) => {
+  const handleRestore = (restoredPayments: any) => {
     setPayments(restoredPayments);
     setState("preview");
   };

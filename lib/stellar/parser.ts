@@ -3,7 +3,7 @@
  */
 
 import Papa from 'papaparse';
-import { ParsedPaymentFile, PaymentInstruction, MemoType } from './types';
+import { ParsedPaymentFile, PaymentInstruction, MemoType, UploadedPaymentInstruction } from './types';
 import { validatePaymentInstruction } from './validator';
 
 export const MAX_UPLOAD_ROWS = 1000;
@@ -153,12 +153,17 @@ export function analyzeParsedPayments(
   });
 
   const rows = instructions.map((instruction, index) => {
-    const validation = validatePaymentInstruction(instruction);
-    const isDuplicate = (addressIndices.get(instruction.address)?.length || 0) > 1;
+    // #397: ensure every parsed instruction has a stable rowIndex
+    const instructionWithIndex: UploadedPaymentInstruction = {
+      ...instruction,
+      rowIndex: instruction.rowIndex !== undefined ? instruction.rowIndex : index,
+    };
+    const validation = validatePaymentInstruction(instructionWithIndex);
+    const isDuplicate = (addressIndices.get(instructionWithIndex.address)?.length || 0) > 1;
 
     return {
       rowNumber: rowOffset + index,
-      instruction,
+      instruction: instructionWithIndex,
       valid: validation.valid && !isDuplicate,
       isDuplicate,
       error: validation.error || (isDuplicate ? 'Duplicate recipient address' : undefined),
@@ -187,7 +192,7 @@ export interface StreamValidationError {
 }
 
 export interface StreamValidationResult {
-  payments: PaymentInstruction[];
+  payments: UploadedPaymentInstruction[];
   errors: StreamValidationError[];
 }
 
@@ -199,7 +204,7 @@ export function parseFileStream(
     onError: (error: Error) => void;
   }
 ) {
-  const instructions: PaymentInstruction[] = [];
+  const instructions: UploadedPaymentInstruction[] = [];
   const validationErrors: StreamValidationError[] = [];
   let rowCount = 0;
   let aborted = false;
@@ -213,7 +218,8 @@ export function parseFileStream(
       const data = results.data as Record<string, unknown>[];
 
       for (let i = 0; i < data.length; i++) {
-        const absoluteRow = rowCount + i + 1; // 1-based, accounting for header row
+        // Validation error row field is 1-based, accounting for header row (starts at 2)
+        const absoluteRow = rowCount + i + 2; 
 
         if (rowCount + i >= MAX_UPLOAD_ROWS) {
           aborted = true;
@@ -232,10 +238,12 @@ export function parseFileStream(
           continue;
         }
 
-        const instruction: PaymentInstruction = {
+        // rowIndex is 0-based data row index consistent with parseCSV, parseJSON, and API
+        const instruction: UploadedPaymentInstruction = {
           address: sanitizeValue(String(row.address || '')),
           amount: sanitizeValue(String(row.amount || '')),
           asset: sanitizeValue(String(row.asset || '')),
+          rowIndex: rowCount + i,
         };
 
         const memo = sanitizeValue(String(row.memo || ''));
