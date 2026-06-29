@@ -52,13 +52,17 @@ export function useDashboardMetrics(
     staleTime: 30 * 1000,
   });
 
+  const showZeroDefaults = !publicKey;
+
   return {
-    metrics: metrics ?? {
-      totalPayments: 0,
-      totalAmountSent: "0 XLM",
-      successRate: "0.0%",
-      activeBatches: 0,
-    },
+    metrics: showZeroDefaults
+      ? {
+          totalPayments: 0,
+          totalAmountSent: "0 XLM",
+          successRate: "0.0%",
+          activeBatches: 0,
+        }
+      : (metrics ?? null),
     loading: isLoading,
     error: error ? (error instanceof Error ? error.message : "Unknown error") : null,
     refetch,
