@@ -10,6 +10,7 @@ import { useWallet } from "@/contexts/WalletContext";
 import { toast } from "sonner";
 import type { PaymentInstruction } from "@/lib/stellar/types";
 import { buildDepositTransaction } from "@/lib/stellar/vesting";
+import { parsePaymentFile } from "@/lib/stellar/parser";
 import { Networks, TransactionBuilder } from "stellar-sdk";
 import { t } from "@/lib/i18n";
 
@@ -61,22 +62,34 @@ export default function VestingPage() {
     try {
       setIsUploading(true);
       const content = await file.text();
-      const lines = content.split("\n").filter((line) => line.trim());
+      let parsedFile;
+      
+      try {
+        parsedFile = parsePaymentFile(content, file.name.toLowerCase().endsWith('.json') ? 'json' : 'csv');
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t("errors.parseFailed"));
+        setIsUploading(false);
+        return;
+      }
+
+      if (parsedFile.invalidCount > 0) {
+        toast.error(`Validation failed for ${parsedFile.invalidCount} rows. Please fix errors and try again.`);
+        setIsUploading(false);
+        return;
+      }
 
       const schedules: VestingSchedule[] = [];
       const recipients = new Set<string>();
       let totalAmount = "0";
 
-      for (let i = 1; i < lines.length; i++) {
-        const [address, amount, asset, memo] = lines[i].split(",");
-        if (!address || !amount) continue;
-
-        recipients.add(address.trim());
+      for (let i = 0; i < parsedFile.validPayments.length; i++) {
+        const payment = parsedFile.validPayments[i];
+        recipients.add(payment.address);
         schedules.push({
           id: `${i}`,
-          recipient: address.trim(),
-          amount: amount.trim(),
-          asset: asset?.trim() || "XLM",
+          recipient: payment.address,
+          amount: payment.amount,
+          asset: payment.asset || "XLM",
           startTime: vestingConfig.startDate
             ? Math.floor(new Date(vestingConfig.startDate).getTime() / 1000)
             : Math.floor(Date.now() / 1000),
@@ -88,7 +101,7 @@ export default function VestingPage() {
           claimedAmount: "0",
           status: "pending",
         });
-        totalAmount = (parseFloat(totalAmount) + parseFloat(amount)).toString();
+        totalAmount = (parseFloat(totalAmount) + parseFloat(payment.amount)).toString();
       }
 
       const batch: VestingBatch = {
