@@ -105,6 +105,7 @@ export function WalletProvider({ children, expectedNetwork = "testnet" }: Wallet
     wallet.disconnect();
     localStorage.removeItem("wallet_public_key");
     localStorage.removeItem("wallet_network");
+    sessionStorage.removeItem("new_batch_state");
     setLedgerError(null);
   }, [wallet]);
 
