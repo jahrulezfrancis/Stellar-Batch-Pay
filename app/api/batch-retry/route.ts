@@ -25,14 +25,18 @@ function hashRequestBody(body: { jobId: string; publicKey: string }): string {
 
 export async function POST(request: NextRequest) {
     const requestId = request.headers.get("x-request-id");
+    // jobId must be declared in the outer scope so the catch block
+    // can reference it for logging (#515 scoping fix).
+    let jobId: string | undefined;
     try {
         const body = (await request.json()) as { jobId?: string; publicKey?: string };
-        const jobId = body.jobId;
+        jobId = body.jobId;
         const publicKey = body.publicKey;
 
         // Extract or derive idempotency key for duplicate retry protection (#550)
         const idempotencyKey = request.headers.get("Idempotency-Key") 
             ?? createHash("sha256").update(`${jobId}-${publicKey}`).digest("hex");
+        console.log("[RETRY] jobId:", jobId, "| publicKey:", publicKey, "| header:", request.headers.get("Idempotency-Key"), "| idempotencyKey:", idempotencyKey, "| ALL_HEADERS:", JSON.stringify([...request.headers.entries()]));
 
         if (!jobId || typeof jobId !== "string") {
             logger.warn({ requestId }, "Missing jobId in retry request");
