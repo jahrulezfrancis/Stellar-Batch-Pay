@@ -32,16 +32,13 @@ import { MAX_UPLOAD_ROWS } from "@/lib/stellar/parser";
 import { safeJsonResponse } from "@/lib/safe-json";
 import { createIdempotentJob, IdempotencyConflictError, getJob } from "@/lib/job-store";
 import { processJobInBackground } from "@/lib/stellar/batch-worker";
-import { processJobInBackground } from "@/lib/stellar/batch-worker";
-import { findSourceMismatch } from "@/lib/stellar/xdr-source";
+import { findSourceMismatch, operationCountOf, networkPassphraseFor } from "@/lib/stellar/xdr-source";
+import { TransactionBuilder } from "stellar-sdk";
 import type {
   JobState,
   PaymentInstruction,
   BatchJobNetwork,
 } from "@/lib/stellar/types";
-import { applyRateLimit, setRateLimitHeaders } from "@/lib/api-rate-limit";
-import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
-import { logger } from "@/lib/logger";
 import { applyRateLimit, setRateLimitHeaders } from "@/lib/api-rate-limit";
 import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
 import { logger } from "@/lib/logger";
@@ -182,6 +179,41 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // #515: When payments are provided alongside signed XDRs, validate that
+      // the payment count aligns with the total operations across all XDRs.
+      // This ensures recipient-level metadata stays consistent with what the
+      // network will execute.
+      if (payments && payments.length > 0) {
+        let totalOps = 0;
+        for (const xdr of signedTransactions) {
+          let tx;
+          try {
+            tx = TransactionBuilder.fromXDR(xdr, networkPassphraseFor(network));
+          } catch {
+            // If an XDR can't be parsed, skip op counting — the worker will
+            // handle it. Don't fail the whole batch for one unparseable XDR.
+            continue;
+          }
+          const count = operationCountOf(tx);
+          totalOps += count ?? 1;
+        }
+
+        if (payments.length !== totalOps) {
+          logger.warn(
+            { requestId, paymentCount: payments.length, totalOps },
+            "Payment count does not match total operations across signed XDRs",
+          );
+          return NextResponse.json(
+            {
+              error:
+                `Payment count (${payments.length}) does not match total operations across signed XDRs (${totalOps}). ` +
+                "When providing both payments and signedTransactions, the payment array must have one entry per operation.",
+            },
+            { status: 400 },
+          );
+        }
+      }
+
       // #504: A pre-signed envelope must be signed by the wallet the job is
       // attributed to. Reject any XDR whose source account (or fee-bump inner
       // source) differs from publicKey before creating the job, so a client
@@ -201,16 +233,21 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // #515: Persist payments alongside signedTransactions so job history
+      // shows real recipient addresses and retry/export flows have metadata.
+      const storedPayments = payments ?? [];
+
       const outcome = createIdempotentJob<BatchSubmitAcceptedResponse>({
         idempotencyKey,
         requestHash,
-        payments: [],
+        payments: storedPayments,
         network,
         publicKey,
         signedTransactions,
         buildResponseBody: (jobId) => ({
           jobId,
           status: "queued",
+          totalPayments: storedPayments.length > 0 ? storedPayments.length : undefined,
           totalTransactions: signedTransactions.length,
           message:
             "Pre-signed batch queued for processing. Poll /api/batch-status/" +
@@ -221,7 +258,7 @@ export async function POST(request: NextRequest) {
 
       if (outcome.replayed) {
         const workerRestarted = resumeStrandedReplay(outcome.jobId, () => {
-          void processJobInBackground(outcome.jobId, [], network, undefined, signedTransactions, requestId || undefined);
+          void processJobInBackground(outcome.jobId, storedPayments, network, undefined, signedTransactions, requestId || undefined);
         });
         logger.info({ requestId, jobId: outcome.jobId, publicKey, network, replayed: true, workerRestarted }, "Batch submit job replayed (pre-signed mode)");
         return setRateLimitHeaders(safeJsonResponse(
@@ -230,7 +267,7 @@ export async function POST(request: NextRequest) {
         ), rate);
       }
 
-      void processJobInBackground(outcome.jobId, [], network, undefined, signedTransactions, requestId || undefined);
+      void processJobInBackground(outcome.jobId, storedPayments, network, undefined, signedTransactions, requestId || undefined);
 
       logger.info({ requestId, jobId: outcome.jobId, publicKey, network, replayed: false }, "Batch submit job queued and background worker triggered (pre-signed mode)");
       return setRateLimitHeaders(safeJsonResponse(

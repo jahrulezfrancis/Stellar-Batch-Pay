@@ -61,6 +61,13 @@ export async function processJobInBackground(
       }
     }
 
+    // #515: If payments not provided or empty, try to recover from job state.
+    // This ensures that restart-recovered pre-signed jobs still have recipient
+    // metadata for history, retry, and export flows.
+    if ((!payments || payments.length === 0) && job.payments && job.payments.length > 0) {
+      payments = job.payments;
+    }
+
     // Create server instance for fee fetching
     const server = new Horizon.Server(horizonUrl(network));
 

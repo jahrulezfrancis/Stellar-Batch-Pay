@@ -21,9 +21,10 @@ const { mockCreateIdempotentJob } = vi.hoisted(() => ({
   mockCreateIdempotentJob: vi.fn(),
 }));
 
-const { mockGetJob, jobStates } = vi.hoisted(() => ({
+const { mockGetJob, jobStates, jobPayments } = vi.hoisted(() => ({
   mockGetJob: vi.fn(),
   jobStates: new Map<string, { status: string; updatedAt: string }>(),
+  jobPayments: new Map<string, unknown[]>(),
 }));
 
 vi.mock("@/lib/stellar/batch-worker", () => ({
@@ -65,6 +66,9 @@ vi.mock("@/lib/job-store", async () => {
       jobId,
       responseBody,
     });
+        // #515: Store payments alongside the job so tests can verify persistence
+    const storedPayments = (args as any).payments ?? [];
+    jobPayments.set(jobId, storedPayments);
     // Mirror the durable store: a fresh job starts "queued" with a current timestamp.
     jobStates.set(jobId, { status: "queued", updatedAt: new Date().toISOString() });
 
@@ -324,6 +328,54 @@ describe("POST /api/batch-submit pre-signed source verification (#504)", () => {
     expect(json.error).toMatch(/source account does not match/i);
     // Rejected before the job is ever created or a worker started.
     expect(mockCreateIdempotentJob).not.toHaveBeenCalled();
+    expect(mockProcessJobInBackground).not.toHaveBeenCalled();
+  });
+
+  test("accepts payments alongside signedTransactions and passes them to createIdempotentJob (#515)", async () => {
+    const payments = [
+      { address: OWNER_PUBLIC_KEY, amount: "10", asset: "XLM" },
+      { address: OTHER_PUBLIC_KEY, amount: "5", asset: "XLM" },
+    ];
+    // Use a real signed XDR so the op-count validation passes (1 op per XDR,
+    // but we have 2 payments... so we use 2 single-op XDRs to match).
+    const body = {
+      network: "testnet" as const,
+      publicKey: OWNER_PUBLIC_KEY,
+      signedTransactions: [buildSignedXdr(OWNER_KEYPAIR), buildSignedXdr(OWNER_KEYPAIR)],
+      payments,
+    };
+
+    const response = await POST(makeRequest(body, "payments-with-xdrs-key") as never);
+    expect(response.status).toBe(202);
+
+    // Verify payments were passed to createIdempotentJob
+    const lastCall = mockCreateIdempotentJob.mock.calls.at(-1)!;
+    const args = lastCall[0];
+    expect(args.payments).toEqual(payments);
+    expect(args.payments).not.toEqual([]);
+  });
+
+  test("rejects payments count mismatch with XDR operations (#515)", async () => {
+    const payments = [{ address: OWNER_PUBLIC_KEY, amount: "10", asset: "XLM" }];
+    // One signed XDR but only one payment — a single-op XDR should match one payment.
+    // Use a real signed XDR so operationCountOf returns a count.
+    const signedXdr = buildSignedXdr(OWNER_KEYPAIR);
+
+    // Pass 2 payments vs 1 operation in the XDR
+    const body = {
+      network: "testnet" as const,
+      publicKey: OWNER_PUBLIC_KEY,
+      signedTransactions: [signedXdr],
+      payments: [
+        { address: OWNER_PUBLIC_KEY, amount: "10", asset: "XLM" },
+        { address: OTHER_PUBLIC_KEY, amount: "5", asset: "XLM" },
+      ],
+    };
+
+    const response = await POST(makeRequest(body, "mismatch-ops-key") as never);
+    expect(response.status).toBe(400);
+    const json = await response.json();
+    expect(json.error).toMatch(/Payment count/i);
     expect(mockProcessJobInBackground).not.toHaveBeenCalled();
   });
 

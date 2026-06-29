@@ -165,6 +165,34 @@ describe("processJobInBackground — pre-signed (client-side) path", () => {
     expect(mockSubmitTransaction).toHaveBeenCalledOnce();
   });
 
+  test("recovers payments from job state when not passed as argument (#515)", async () => {
+    mockSubmitTransaction.mockResolvedValue({ hash: "recovered_payments_hash" });
+
+    const { createJob, getJob } = await import("../lib/job-store");
+    const { processJobInBackground } = await import("../lib/stellar/batch-worker");
+
+    const owner = Keypair.random().publicKey();
+    const recipient1 = Keypair.random().publicKey();
+    const recipient2 = Keypair.random().publicKey();
+    const payments = [
+      { address: recipient1, amount: "1", asset: "XLM" },
+      { address: recipient2, amount: "2", asset: "XLM" },
+    ];
+    const signedTransactions = ["RECOVER"];
+
+    const jobId = createJob(payments, "testnet", owner, signedTransactions);
+
+    // Do NOT pass payments — worker must recover them from job state (#515)
+    await processJobInBackground(jobId, [], "testnet", undefined, signedTransactions);
+
+    const job = getJob(jobId);
+    expect(job?.status).toBe("completed");
+    // Results should contain real recipient addresses, not synthetic placeholders
+    expect(job?.result?.results[0].recipient).toBe(recipient1);
+    expect(job?.result?.results[1].recipient).toBe(recipient2);
+    expect(mockSubmitTransaction).toHaveBeenCalledOnce();
+  });
+
   test("exits early and does nothing when job is already completed", async () => {
     mockSubmitTransaction.mockResolvedValue({ hash: "should_not_be_called" });
 

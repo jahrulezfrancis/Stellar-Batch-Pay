@@ -159,4 +159,37 @@ describe("POST /api/batch-retry (#388)", () => {
         const body2 = await res2.json();
         expect(body2.jobId).toBe(firstJobId);
     });
+
+    test("retries a pre-signed batch with stored payment metadata (#515)", async () => {
+        // Create a pre-signed job that also has payment metadata
+        const preSignedPayments: PaymentInstruction[] = [
+            { address: RECIPIENT_OK, amount: "10.0000000", asset: "XLM", rowIndex: 0 },
+            { address: RECIPIENT_BAD, amount: "5.0000000", asset: "XLM", rowIndex: 1 },
+        ];
+        const preSignedJobId = createJob(preSignedPayments, "testnet", OWNER, ["AAAA", "BBBB"]);
+        updateJob(preSignedJobId, { status: "completed", result: completedResult });
+
+        const res = await POST(makeRequest({ jobId: preSignedJobId, publicKey: OWNER }) as never);
+        expect(res.status).toBe(202);
+
+        const body = await res.json();
+        expect(body.jobId).toBeDefined();
+        expect(body.failedPayments).toBe(1);
+
+        const retryJob = getJob(body.jobId, OWNER);
+        expect(retryJob).toBeDefined();
+        expect(retryJob?.payments).toHaveLength(1);
+        expect(retryJob?.payments[0].address).toBe(RECIPIENT_BAD);
+    });
+
+    test("still blocks retry for pre-signed batches without payment metadata (#515)", async () => {
+        // Create a pre-signed job with empty payments (no metadata preserved)
+        const emptyPaymentsJobId = createJob([], "testnet", OWNER, ["AAAA"]);
+        updateJob(emptyPaymentsJobId, { status: "completed", result: completedResult });
+
+        const res = await POST(makeRequest({ jobId: emptyPaymentsJobId, publicKey: OWNER }) as never);
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.error).toMatch(/no payment metadata preserved/i);
+    });
 });
