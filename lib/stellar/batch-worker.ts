@@ -8,7 +8,7 @@
  */
 
 import { StellarService } from "./server";
-import { updateJob, getJob, incrementCompletedBatches } from "../job-store";
+import { updateJob, getJob, incrementCompletedBatches, claimJobForProcessing } from "../job-store";
 import { createBatches } from "./batcher";
 import { getXdrSourceAccount, operationCountOf } from "./xdr-source";
 import type {
@@ -45,9 +45,10 @@ export async function processJobInBackground(
       logger.warn({ requestId, jobId }, "Background worker: Job not found");
       return;
     }
-    // Reject second processJobInBackground if status is not queued or processing
-    if (job.status !== "queued" && job.status !== "processing") {
-      logger.warn({ requestId, jobId, status: job.status }, "Background worker: Job is already processed or completed. Exiting early.");
+    // Atomically claim the job. If claim fails, it means another worker is actively processing it or it is finished.
+    const claimed = claimJobForProcessing(jobId);
+    if (!claimed) {
+      logger.warn({ requestId, jobId, status: job.status }, "Background worker: Duplicate worker run detected. Job is already claimed, processing, or completed. Exiting early.");
       return;
     }
 

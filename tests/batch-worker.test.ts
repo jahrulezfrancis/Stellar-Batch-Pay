@@ -252,3 +252,71 @@ describe("processJobInBackground — webhook delivery", () => {
     );
   });
 });
+
+describe("processJobInBackground — concurrent processing guards (#508)", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    mockSubmitTransaction.mockReset();
+    mockTriggerWebhooksWithRetry.mockReset();
+    mockTriggerWebhooksWithRetry.mockResolvedValue(undefined);
+  });
+
+  test("only one worker can claim a queued job atomically", async () => {
+    const { createJob, claimJobForProcessing } = await import("../lib/job-store");
+    const owner = Keypair.random().publicKey();
+    const recipient = Keypair.random().publicKey();
+    const payments = [{ address: recipient, amount: "1", asset: "XLM" }];
+
+    const jobId = createJob(payments, "testnet", owner, ["AAAA"]);
+
+    const claims = await Promise.all([
+      claimJobForProcessing(jobId),
+      claimJobForProcessing(jobId),
+      claimJobForProcessing(jobId),
+    ]);
+
+    const successCount = claims.filter(Boolean).length;
+    expect(successCount).toBe(1);
+  });
+
+  test("reclaims a stale processing job after lease timeout", async () => {
+    const { createJob, claimJobForProcessing, getDb } = await import("../lib/job-store");
+    const owner = Keypair.random().publicKey();
+    const recipient = Keypair.random().publicKey();
+    const payments = [{ address: recipient, amount: "1", asset: "XLM" }];
+
+    const jobId = createJob(payments, "testnet", owner, ["AAAA"]);
+
+    const firstClaim = claimJobForProcessing(jobId);
+    expect(firstClaim).toBe(true);
+
+    const secondClaimImmediately = claimJobForProcessing(jobId);
+    expect(secondClaimImmediately).toBe(false);
+
+    const staleTime = new Date(Date.now() - 40000).toISOString();
+    getDb().prepare("UPDATE jobs SET updatedAt = ? WHERE jobId = ?").run(staleTime, jobId);
+
+    const thirdClaimStale = claimJobForProcessing(jobId);
+    expect(thirdClaimStale).toBe(true);
+  });
+
+  test("concurrent processJobInBackground calls produce a single Horizon submission set", async () => {
+    mockSubmitTransaction.mockResolvedValue({ hash: "abc123" });
+
+    const { createJob } = await import("../lib/job-store");
+    const { processJobInBackground } = await import("../lib/stellar/batch-worker");
+
+    const owner = Keypair.random().publicKey();
+    const recipient = Keypair.random().publicKey();
+    const payments = [{ address: recipient, amount: "1", asset: "XLM" }];
+
+    const jobId = createJob(payments, "testnet", owner, ["AAAA"]);
+
+    await Promise.all([
+      processJobInBackground(jobId, payments, "testnet"),
+      processJobInBackground(jobId, payments, "testnet"),
+    ]);
+
+    expect(mockSubmitTransaction).toHaveBeenCalledOnce();
+  });
+});
