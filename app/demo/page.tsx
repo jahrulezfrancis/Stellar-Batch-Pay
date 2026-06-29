@@ -7,7 +7,7 @@ import { FileUpload } from "@/components/file-upload";
 import { BatchSummary } from "@/components/batch-summary";
 import { ResultsDisplay } from "@/components/results-display";
 import { ConnectWalletButton } from "@/components/connect-wallet-button";
-import { useFreighter } from "@/hooks/use-freighter";
+import { useWallet } from "@/contexts/WalletContext";
 import { useToast } from "@/components/ui/use-toast";
 import { parseInput, parseFileStream, validatePaymentInstructions } from "@/lib/stellar";
 import type { StreamValidationResult } from "@/lib/stellar/parser";
@@ -50,7 +50,7 @@ export default function Home() {
   });
 
   const { saveResult } = useBatchHistory();
-  const { publicKey, signTx } = useFreighter();
+  const { publicKey, signTx } = useWallet();
 
   const handleFileSelect = async (file: File, format: "json" | "csv") => {
     try {

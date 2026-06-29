@@ -20,7 +20,7 @@ import {
     isBadSequenceError,
     isInsufficientFeeError,
 } from "@/lib/stellar/submit-errors";
-import { getXdrSourceAccount } from "@/lib/stellar/xdr-source";
+import { getXdrSourceAccount, operationCountOf } from "@/lib/stellar/xdr-source";
 
 interface RequestBody {
     signedXdr: string;
@@ -131,7 +131,8 @@ export async function POST(request: NextRequest) {
             if (isInsufficientFeeError(submissionError)) {
                 const feeStats = await getFeeStats(server);
                 const currentBaseFee = Number(feeStats.last_ledger_base_fee || "100");
-                const estimatedFee = (currentBaseFee * 300).toString(); // 300 ops is typical batch size
+                const opCount = operationCountOf(transaction) ?? 1;
+                const estimatedFee = (currentBaseFee * opCount).toString();
 
                 return setRateLimitHeaders(safeJsonResponse(
                     {
@@ -140,8 +141,9 @@ export async function POST(request: NextRequest) {
                         code: "insufficient_fee",
                         action: "increase_fee",
                         currentNetworkFee: currentBaseFee,
+                        operationCount: opCount,
                         estimatedRequiredFee: estimatedFee,
-                        guidance: `Network base fee is ${currentBaseFee} stroops. Consider retrying with a fee of at least ${estimatedFee} stroops.`,
+                        guidance: `Network base fee is ${currentBaseFee} stroops × ${opCount} operation(s). Consider retrying with a fee of at least ${estimatedFee} stroops.`,
                     },
                     { status: 400 },
                 ), rate);

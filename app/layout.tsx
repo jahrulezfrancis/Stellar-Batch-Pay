@@ -93,7 +93,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <WalletProvider expectedNetwork="testnet">
+          <WalletProvider expectedNetwork={(process.env.NEXT_PUBLIC_STELLAR_NETWORK as "testnet" | "mainnet") ?? "testnet"}>
             <QueryProvider>
               <AddressBookProvider>
                 {children}

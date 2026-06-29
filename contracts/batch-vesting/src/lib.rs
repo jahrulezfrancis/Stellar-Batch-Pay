@@ -1160,6 +1160,12 @@ impl BatchVestingContract {
 
     /// Revoke unvested schedules for multiple (recipient, index) pairs atomically.
     /// Reverts the entire transaction if any revocation fails.
+    ///
+    /// Requests MUST be provided pre-sorted in strictly descending order of
+    /// `index` within each recipient (same requirement as `batch_revoke`).
+    /// This keeps on-chain instruction counts O(N) and within Soroban resource
+    /// limits for batches up to MAX_BATCH_SIZE (100). Unsorted input is
+    /// rejected immediately with VestingError::InvalidInput. (#544)
     pub fn revoke_batch(env: Env, caller: Address, requests: Vec<RevokeRequest>) {
         Self::panic_if_operation_paused(&env, PAUSE_REVOKE);
         caller.require_auth();
@@ -1170,34 +1176,26 @@ impl BatchVestingContract {
             return;
         }
 
+        // O(N) validation: require strictly descending index per recipient so
+        // swap-with-last removal does not corrupt pending indices. Sorting is
+        // pushed to the caller (off-chain). (#544 / #308)
+        if n > 1 {
+            let mut last_index: Map<Address, u32> = Map::new(&env);
+            for i in 0..n {
+                let curr = requests.get(i).unwrap();
+                if let Some(prev_index) = last_index.get(curr.recipient.clone()) {
+                    if curr.index >= prev_index {
+                        soroban_sdk::panic_with_error!(&env, VestingError::InvalidInput);
+                    }
+                }
+                last_index.set(curr.recipient.clone(), curr.index);
+            }
+        }
+
         let current_time = env.ledger().timestamp();
 
-        // Build a process_order array and sort in DESCENDING order of index
-        // to prevent swap-with-last removal from corrupting pending indices.
-        let mut process_order: Vec<u32> = Vec::new(&env);
         for k in 0..n {
-            process_order.push_back(k);
-        }
-        for i in 1..n {
-            let key = process_order.get(i).unwrap();
-            let key_idx = requests.get(key).unwrap().index;
-            let mut j = i;
-            while j > 0 {
-                let prev = process_order.get(j - 1).unwrap();
-                let prev_idx = requests.get(prev).unwrap().index;
-                if prev_idx < key_idx {
-                    process_order.set(j, prev);
-                    j -= 1;
-                } else {
-                    break;
-                }
-            }
-            process_order.set(j, key);
-        }
-
-        for k in 0..n {
-            let pos = process_order.get(k).unwrap();
-            let request = requests.get(pos).unwrap();
+            let request = requests.get(k).unwrap();
             let recipient = &request.recipient;
             let index = request.index;
 

@@ -33,11 +33,11 @@ import {
 } from "@/lib/settings-prefs";
 
 export default function SettingsPage() {
-  const { publicKey, connect, disconnect, isConnecting } = useWallet();
+  const { publicKey, connect, disconnect, isConnecting, expectedNetwork, selectNetwork } = useWallet();
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
 
-  const [defaultNetwork, setDefaultNetwork] = useState<string>("testnet");
+  const [defaultNetwork, setDefaultNetwork] = useState<string>(expectedNetwork);
   const [defaultAsset, setDefaultAsset] = useState<string>("xlm");
   const [batchValidation, setBatchValidation] = useState(true);
   const [completionNotifications, setCompletionNotifications] = useState(true);
@@ -52,6 +52,11 @@ export default function SettingsPage() {
     setBatchValidation(prefs.batchValidation);
     setCompletionNotifications(prefs.completionNotifications);
   }, []);
+
+  // Keep defaultNetwork in sync with active wallet network (#528)
+  useEffect(() => {
+    setDefaultNetwork(expectedNetwork);
+  }, [expectedNetwork]);
 
   // Debounced save to localStorage
   const debouncedSave = useCallback(
@@ -69,9 +74,11 @@ export default function SettingsPage() {
 
   // Update handlers to save preferences
   const handleDefaultNetworkChange = useCallback((value: string) => {
-    setDefaultNetwork(value);
-    debouncedSave({ defaultNetwork: value as "testnet" | "mainnet" });
-  }, [debouncedSave]);
+    const net = value as "testnet" | "mainnet";
+    setDefaultNetwork(net);
+    selectNetwork(net);
+    debouncedSave({ defaultNetwork: net });
+  }, [debouncedSave, selectNetwork]);
 
   const handleDefaultAssetChange = useCallback((value: string) => {
     setDefaultAsset(value);
@@ -206,7 +213,7 @@ export default function SettingsPage() {
 
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Network</span>
-              <span className="text-white font-medium">Testnet</span>
+              <span className="text-white font-medium capitalize">{expectedNetwork}</span>
             </div>
 
             {publicKey && (
