@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ConditionalAnalytics } from "@/components/conditional-analytics";
 import StellarFooter from "@/components/landing/StellarFooter";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { WalletProvider } from "@/contexts/WalletContext";
 import { AddressBookProvider } from "@/contexts/AddressBookContext";
 import { NetworkWarning } from "@/components/network-warning";
@@ -102,6 +103,7 @@ export default function RootLayout({
             </QueryProvider>
           </WalletProvider>
           <Toaster />
+          <SonnerToaster />
           <ConditionalAnalytics />
         </ThemeProvider>
       </body>

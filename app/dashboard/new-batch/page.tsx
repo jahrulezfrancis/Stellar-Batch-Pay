@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileUpload } from "@/components/file-upload";
@@ -26,7 +26,15 @@ import { BatchReview } from "@/components/dashboard/BatchReview";
 import Link from "next/link";
 import { BatchErrorBoundary } from "@/components/BatchErrorBoundary";
 import { BatchFlowProvider, useBatchFlow } from "@/contexts/BatchFlowContext";
+import { DashboardWalletEmpty } from "@/components/dashboard/dashboard-wallet-empty";
 import { t } from "@/lib/i18n";
+import type {
+  PaymentInstruction,
+  ParsedPaymentFile,
+  BatchResult,
+  JobStatus,
+} from "@/lib/stellar/types";
+import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
 
 const NEW_BATCH_STATE_KEY = "new_batch_state";
 
@@ -55,32 +63,58 @@ async function buildBatchSubmitIdempotencyKey(body: {
 }
 
 function NewBatchPaymentPageContent() {
-  const [step, setStep] = useState(1);
-  const [selectedNetwork, setSelectedNetwork] = useState<"testnet" | "mainnet">(
-    "testnet",
-  );
-  const [file, setFile] = useState<File | null>(null);
-  const [fileFormat, setFileFormat] = useState<"json" | "csv" | null>(null);
-  const [validationResult, setValidationResult] =
-    useState<ParsedPaymentFile | null>(null);
-  const [validationError, setValidationError] = useState("");
-  const [summary, setSummary] = useState<{
-    recipientCount: number;
-    validCount: number;
-    invalidCount: number;
-    totalAmount: string;
-    assetBreakdown: Record<string, number>;
-  } | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [result, setResult] = useState<BatchResult | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [jobStatus, setJobStatus] = useState<JobStatus>("queued");
-  const [completedBatches, setCompletedBatches] = useState(0);
-  const [totalBatches, setTotalBatches] = useState(0);
-  const [manualPayments, setManualPayments] = useState<PaymentInstruction[]>(
-    [],
-  );
-  const [entryMode, setEntryMode] = useState<"upload" | "manual">("upload");
+  const { publicKey } = useWallet();
+  const {
+    step,
+    setStep,
+    selectedNetwork,
+    setSelectedNetwork,
+    file,
+    setFile,
+    fileFormat,
+    setFileFormat,
+    validationResult,
+    setValidationResult,
+    validationError,
+    setValidationError,
+    summary,
+    setSummary,
+    isSubmitting,
+    setIsSubmitting,
+    result,
+    setResult,
+    jobId,
+    setJobId,
+    jobStatus,
+    setJobStatus,
+    completedBatches,
+    setCompletedBatches,
+    totalBatches,
+    setTotalBatches,
+    manualPayments,
+    setManualPayments,
+    entryMode,
+    setEntryMode,
+    skippedIndices,
+    setSkippedIndices,
+    convertedIndices,
+    setConvertedIndices,
+    batchMeta,
+    setBatchMeta,
+    batchMetaLoading,
+    setBatchMetaLoading,
+    estimatedFees,
+    setEstimatedFees,
+    onSkipToggle,
+    onConvertToggle,
+    handleRetryFailed,
+    handleFileSelect,
+    handleManualContinue,
+    loadBatchMeta,
+    onSubmit,
+    handleRestore,
+  } = useBatchFlow();
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasLoadedSavedStateRef = useRef(false);
 
@@ -107,27 +141,41 @@ function NewBatchPaymentPageContent() {
     step,
     setStep,
     file,
+    setFile,
     fileFormat,
+    setFileFormat,
     validationResult,
+    setValidationResult,
     validationError,
+    setValidationError,
     summary,
+    setSummary,
     isSubmitting,
+    setIsSubmitting,
     result,
+    setResult,
     jobId,
+    setJobId,
     jobStatus,
+    setJobStatus,
     completedBatches,
+    setCompletedBatches,
     totalBatches,
+    setTotalBatches,
     manualPayments,
     setManualPayments,
     entryMode,
     setEntryMode,
+    selectedNetwork,
+    setSelectedNetwork,
     batchMetaLoading,
+    setBatchMetaLoading,
     estimatedFees,
-    handleManualContinue,
+    setEstimatedFees,
     handleFileSelect,
     handleRestore,
     loadBatchMeta,
-  } = useBatchFlow();
+  ]);
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {

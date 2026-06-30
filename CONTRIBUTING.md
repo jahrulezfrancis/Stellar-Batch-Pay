@@ -6,6 +6,7 @@ This guide covers the local setup, architecture, testing workflow, and pull requ
 
 - Node.js 20 or newer
 - npm 10 or newer
+- Bun 1.2.4
 - Rust toolchain with `wasm32-unknown-unknown`
 - Soroban CLI
 

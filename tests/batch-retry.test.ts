@@ -197,9 +197,9 @@ describe("POST /api/batch-retry (#388)", () => {
         expect(res.status).toBe(400);
     });
 
-    test("returns 403 when publicKey does not match the job owner", async () => {
+    test("returns 404 when publicKey does not match the job owner", async () => {
         const res = await POST(makeRequest({ jobId, publicKey: OTHER }) as never);
-        expect(res.status).toBe(403);
+        expect(res.status).toBe(404);
     });
 
     test("creates a retry job owned by — and pollable with — the same key", async () => {

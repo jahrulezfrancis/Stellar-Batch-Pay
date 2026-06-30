@@ -2,6 +2,7 @@
   "name": "stellar-batch-pay",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.2.4",
   "description": "Stellar BatchPay is a tool that lets you send many cryptocurrency payments at once on the Stellar blockchain. Instead of sending payments one-by-one (which would take forever), BatchPay groups them together and sends them in efficient batches.",
   "license": "ISC",
   "author": "",

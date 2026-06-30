@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const job = getJob(jobId);
+        const job = getJob(jobId, publicKey);
         if (!job || !job.result) {
             logger.warn({ requestId, jobId }, "Batch job not found or not completed");
             return NextResponse.json(
