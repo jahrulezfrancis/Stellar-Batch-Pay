@@ -11,6 +11,7 @@ import {
 } from "stellar-sdk";
 import type { PaymentInstruction, Network } from "./types";
 import { acquireGuard } from "./reentrancy-guard";
+import { amountToStroopsI128 } from "./utils";
 
 const SOROBAN_RPC_URLS: Record<Network, string> = {
   testnet: "https://soroban-testnet.stellar.org",
@@ -26,15 +27,16 @@ function addressVecToScVal(addresses: string[]): xdr.ScVal {
 }
 
 /**
- * Serialize an array of i128 amounts (in stroops) to ScVal Vec<i128>
- * Amounts are passed as string decimals; we convert to i128 stroops (7 decimal places).
+ * Serialize an array of i128 amounts (in stroops) to ScVal Vec<i128>.
+ * Amounts are passed as string decimals; we convert to i128 stroops (7 decimal
+ * places) using decimal-safe big.js arithmetic via {@link amountToStroopsI128}.
+ * Invalid or over-precise amounts throw before any RPC simulation (#506).
  */
 function amountVecToScVal(amounts: string[]): xdr.ScVal {
   return xdr.ScVal.scvVec(
-    amounts.map((amt) => {
-      const stroops = BigInt(Math.round(parseFloat(amt) * 1e7));
-      return nativeToScVal(stroops, { type: "i128" });
-    }),
+    amounts.map((amt) =>
+      nativeToScVal(amountToStroopsI128(amt), { type: "i128" }),
+    ),
   );
 }
 
@@ -104,8 +106,7 @@ function assetToTokenAddress(asset: string, network: Network): string {
 }
 
 function amountToScVal(amount: string): xdr.ScVal {
-  const stroops = BigInt(Math.round(parseFloat(amount) * 1e7));
-  return nativeToScVal(stroops, { type: "i128" });
+  return nativeToScVal(amountToStroopsI128(amount), { type: "i128" });
 }
 
 async function buildSorobanTransaction(

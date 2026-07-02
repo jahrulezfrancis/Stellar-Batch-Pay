@@ -50,6 +50,21 @@ jobs:
             const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
             const issueNumber = context.issue?.number;
 
+            // Write job summary so the failure reason is visible in the Actions UI.
+            const summary = [
+              '## ❌ Keeper Bot Failure',
+              '',
+              `| Field | Value |`,
+              `| ----- | ----- |`,
+              `| Run | [${context.runId}](${runUrl}) |`,
+              `| Contract | \`${process.env.CONTRACT_ID || 'N/A'}\` |`,
+              `| Schedule | \`${context.event?.schedule || 'manual'}\` |`,
+              '',
+              'Check the **Run keeper bot** step logs for the full error.',
+            ].join('\n');
+            core.summary.addRaw(summary);
+            await core.summary.write();
+
             if (issueNumber) {
               await github.rest.issues.createComment({
                 owner,

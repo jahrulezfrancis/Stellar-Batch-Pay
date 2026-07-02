@@ -10,7 +10,7 @@ import {
   HistoryFilterBar,
   type HistoryFilterValues,
 } from "@/components/dashboard/HistoryFilterBar";
-import { HistoryTable, type HistoricalBatch } from "@/components/dashboard/HistoryTable";
+import { HistoryTable } from "@/components/dashboard/HistoryTable";
 import { Pagination } from "@/components/dashboard/Pagination";
 import { MetricsGrid } from "@/components/dashboard/MetricsGrid";
 import { HistoryExportCenter } from "@/components/dashboard/HistoryExportCenter";
@@ -29,27 +29,6 @@ import { t } from "@/lib/i18n";
 // enterprise-grade but didn't function.
 const DEFAULT_LIMIT = 10;
 
-/** Derive MetricsGrid data from the current page's loaded batches (#412). */
-function computeMetrics(batches: HistoricalBatch[]) {
-  if (batches.length === 0) return undefined;
-
-  const totalBatches = batches.length;
-  const totalPayments = batches.reduce((s, b) => s + b.totalPayments, 0);
-  const totalVolume = batches.reduce((s, b) => s + parseFloat(b.totalAmount ?? "0"), 0);
-  const successful = batches.filter(
-    (b) => b.summary && b.summary.failed === 0 && b.status === "completed"
-  ).length;
-  const completed = batches.filter((b) => b.status === "completed").length;
-  const successRate = completed > 0 ? ((successful / completed) * 100).toFixed(1) + "%" : "0.0%";
-
-  return {
-    totalBatches,
-    totalPayments,
-    successRate,
-    totalVolume: `${totalVolume.toFixed(2)} XLM`,
-  };
-}
-
 export default function HistoryPage() {
   const { publicKey } = useWallet();
   const searchParams = useSearchParams();
@@ -60,8 +39,14 @@ export default function HistoryPage() {
   const [filters, setFilters] = useState<HistoryFilterValues>(parsedFilters);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [loadedBatches, setLoadedBatches] = useState<HistoricalBatch[]>([]);
-  const [aggregateMetrics, setAggregateMetrics] = useState<{ totalBatches: number; totalPayments: number; successRate: string; totalVolume: string } | undefined>(undefined);
+  const [aggregateMetrics, setAggregateMetrics] = useState<{
+    totalBatches: number;
+    totalPayments: number;
+    successRate: string;
+    totalVolume: string;
+    failedJobs: number;
+    failedPayments: number;
+  } | undefined>(undefined);
 
   useEffect(() => {
     setFilters(parsedFilters);
@@ -79,13 +64,15 @@ export default function HistoryPage() {
     setTotalPages(Math.max(1, nextTotalPages));
   }, []);
 
-  // #412: lift loaded rows up so MetricsGrid can aggregate them.
-  const handleRowsLoad = useCallback((rows: HistoricalBatch[]) => {
-    setLoadedBatches(rows);
-  }, []);
-
   // Use aggregate metrics from API (computed across all filtered results)
-  const handleAggregateMetricsLoad = useCallback((metrics: { totalBatches: number; totalPayments: number; successRate: string; totalVolume: string }) => {
+  const handleAggregateMetricsLoad = useCallback((metrics: {
+    totalBatches: number;
+    totalPayments: number;
+    successRate: string;
+    totalVolume: string;
+    failedJobs: number;
+    failedPayments: number;
+  }) => {
     setAggregateMetrics(metrics);
   }, []);
 
@@ -122,7 +109,6 @@ export default function HistoryPage() {
             searchFilter={filters.search}
             fromFilter={dateRangeToFrom(filters.dateRange)}
             onPaginationLoad={handlePaginationLoad}
-            onRowsLoad={handleRowsLoad}
             onAggregateMetricsLoad={handleAggregateMetricsLoad}
           />
           <div className="px-4 pb-4 sm:px-0 sm:pb-0">

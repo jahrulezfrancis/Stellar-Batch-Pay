@@ -13,14 +13,15 @@ export default function DashboardError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Log the error to an error reporting service
     console.error("Dashboard error caught:", error);
 
-    // In production, send to Sentry or similar service
     if (process.env.NODE_ENV === "production" && process.env.NEXT_PUBLIC_SENTRY_DSN) {
-      // Example: Sentry.captureException(error);
+      import("@sentry/nextjs").then(({ captureException }) => captureException(error));
     }
   }, [error]);
+
+  const sentryEnabled =
+    process.env.NODE_ENV === "production" && !!process.env.NEXT_PUBLIC_SENTRY_DSN;
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center p-4">
@@ -38,7 +39,7 @@ export default function DashboardError({
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <p className="text-muted-foreground">
-              The dashboard encountered an error while loading. This has been reported to our team.
+              The dashboard encountered an error while loading.{sentryEnabled ? " This has been reported to our team." : " Please retry or contact support if the issue persists."}
             </p>
             {process.env.NODE_ENV === "development" && (
               <div className="text-xs text-destructive font-mono bg-destructive/10 p-3 rounded mt-2">

@@ -46,6 +46,7 @@ interface ParsedArgs {
   output?: string;
   maxOps: number;
   help: boolean;
+  version: boolean;
 }
 
 const HELP = `stellar-batch-pay — Stellar batch payments CLI
@@ -56,7 +57,7 @@ Usage:
 Commands:
   validate          Parse + validate an input file. Exits non-zero on errors.
   build             Validate + create batches. Prints batch summaries.
-  submit            Build + submit batches. Requires STELLAR_SECRET_KEY.
+  submit            (Disabled) Build + submit batches. Requires STELLAR_SECRET_KEY.
   help              Print this message.
 
 Flags:
@@ -76,6 +77,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     network: 'testnet',
     maxOps: 100,
     help: false,
+    version: false,
   };
 
   if (argv.length === 0) {
@@ -96,6 +98,11 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       case '--help':
       case '-h':
         args.help = true;
+        i += 1;
+        break;
+      case '--version':
+      case '-v':
+        args.version = true;
         i += 1;
         break;
       case '--input': {
@@ -216,20 +223,11 @@ async function cmdSubmit(args: ParsedArgs): Promise<number> {
   // and signer that the dapp gets from Freighter. That's a separate
   // PR (#211-style follow-up). Until then, the CLI exits with a
   // clear actionable message instead of pretending to submit.
-  await emitResult(
-    {
-      command: 'submit',
-      stage: 'built',
-      input: args.input,
-      batches: summaries.length,
-      summaries,
-      note:
-        'CLI-side submission is implemented as a follow-up. ' +
-        'Built batches are ready; submit via the dapp UI for now.',
-    },
-    args.output,
+  process.stderr.write(
+    'NOT_IMPLEMENTED: CLI-side submission is implemented as a follow-up. ' +
+    'Built batches are ready; submit via the dapp UI for now.\n'
   );
-  return 0;
+  return 2;
 }
 
 export async function run(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
@@ -239,6 +237,11 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
   } catch (e) {
     process.stderr.write(`${(e as Error).message}\n\n${HELP}`);
     return 2;
+  }
+
+  if (args.version) {
+    process.stdout.write(`stellar-batch-pay 0.1.0\n`);
+    return 0;
   }
 
   if (args.help || args.command === 'help') {

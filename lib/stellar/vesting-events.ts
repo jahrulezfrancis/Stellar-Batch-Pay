@@ -21,6 +21,7 @@ export interface VestingRevokedEventPayload {
   pendingVested: string;
   token: string;
   memo: string;
+  batchId: number;
 }
 
 export interface VestingPartiallyRevokedEventPayload {
@@ -187,6 +188,7 @@ export function parseVestingRevoked(payload: unknown): VestingRevokedEventPayloa
     pendingVested: toAmountString(fields[1]),
     token: toTokenAddress(fields[2]),
     memo: fields.length > 3 ? toMemo(fields[3]) : "",
+    batchId: fields.length > 4 ? Number(fields[4]) : 0,
   };
 }
 

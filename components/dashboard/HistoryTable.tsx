@@ -7,19 +7,10 @@ import { ChevronDown, ChevronUp, ChevronRight, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useWallet } from "@/contexts/WalletContext"
+import { fetchHistory, batchHistoryQueryKey, type HistoricalBatch } from "@/lib/dashboard/fetch-history"
 import { cn } from "@/lib/utils"
 
-export interface HistoricalBatch {
-  jobId: string
-  createdAt: string
-  network: "testnet" | "mainnet"
-  totalPayments: number
-  totalAmount: string | null
-  completedBatches: number
-  totalBatches: number
-  status: "queued" | "processing" | "completed" | "failed"
-  summary: { successful: number; failed: number } | null
-}
+export type { HistoricalBatch }
 
 interface HistoryTableProps {
   data?: HistoricalBatch[]
@@ -32,7 +23,14 @@ interface HistoryTableProps {
   fromFilter?: string
   onPaginationLoad?: (pagination: { totalPages: number; total: number }) => void
   onRowsLoad?: (rows: HistoricalBatch[]) => void
-  onAggregateMetricsLoad?: (metrics: { totalBatches: number; totalPayments: number; successRate: string; totalVolume: string }) => void
+  onAggregateMetricsLoad?: (metrics: {
+    totalBatches: number;
+    totalPayments: number;
+    successRate: string;
+    totalVolume: string;
+    failedJobs: number;
+    failedPayments: number;
+  }) => void
 }
 
 function formatDate(iso: string): string {
@@ -59,43 +57,6 @@ function deriveDisplayStatus(batch: HistoricalBatch): "Success" | "Partial" | "F
     return "Failed"
   }
   return "Success"
-}
-
-async function fetchHistory(params: {
-  publicKey: string
-  page: number
-  limit: number
-  statusFilter?: string
-  networkFilter?: string
-  searchFilter?: string
-  fromFilter?: string
-  sort?: string
-  order?: string
-}): Promise<{
-  items: HistoricalBatch[]
-  pagination: { totalPages: number; total: number }
-  aggregateMetrics?: {
-    totalBatches: number
-    totalPayments: number
-    successRate: string
-    totalVolume: string
-  }
-}> {
-  const urlParams = new URLSearchParams({
-    page: String(params.page),
-    limit: String(params.limit),
-    publicKey: params.publicKey,
-  })
-  if (params.statusFilter) urlParams.set("status", params.statusFilter)
-  if (params.networkFilter) urlParams.set("network", params.networkFilter)
-  if (params.searchFilter?.trim()) urlParams.set("search", params.searchFilter.trim())
-  if (params.fromFilter) urlParams.set("from", params.fromFilter)
-  if (params.sort) urlParams.set("sort", params.sort)
-  if (params.order) urlParams.set("order", params.order)
-
-  const res = await fetch(`/api/batch-history?${urlParams.toString()}`)
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.json()
 }
 
 export function HistoryTable({
@@ -134,7 +95,7 @@ export function HistoryTable({
   }, [searchFilter])
 
   const queryKey = useMemo(
-    () => ["batch-history", publicKey, page, limit, statusFilter, networkFilter, debouncedSearch, fromFilter, sortColumn, sortOrder] as const,
+    () => batchHistoryQueryKey(publicKey, page, limit, statusFilter, networkFilter, debouncedSearch, fromFilter, sortColumn, sortOrder),
     [publicKey, page, limit, statusFilter, networkFilter, debouncedSearch, fromFilter, sortColumn, sortOrder],
   )
 
@@ -212,33 +173,41 @@ export function HistoryTable({
     <div className={className}>
       {/* Desktop View */}
       <div className="hidden md:block overflow-x-auto overflow-y-hidden">
-        <table className="w-full text-left min-w-[1000px]">
+        <table className="w-full text-left min-w-[1000px]" aria-label="Batch payment history">
           <thead>
             <tr className="text-xs font-semibold text-gray-500 border-b border-[#1F2937]">
-              <th className="pb-4 px-4 whitespace-nowrap">
+              <th className="pb-4 px-4 whitespace-nowrap" scope="col" aria-sort="none">
                 <div className="flex items-center gap-1">
                   Batch ID
                 </div>
               </th>
-              <th className="pb-4 px-4 whitespace-nowrap">
+              <th
+                className="pb-4 px-4 whitespace-nowrap"
+                scope="col"
+                aria-sort={sortColumn === "createdAt" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+              >
                 <div className="flex items-center gap-1 cursor-pointer hover:text-gray-300" onClick={() => toggleSort("createdAt")}>
                   Date Submitted {sortColumn === "createdAt" ? (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <ChevronDown className="h-3 w-3 opacity-30" />}
                 </div>
               </th>
-              <th className="pb-4 px-4 whitespace-nowrap">Network</th>
-              <th className="pb-4 px-4 whitespace-nowrap">Recipients</th>
-              <th className="pb-4 px-4 whitespace-nowrap">
+              <th className="pb-4 px-4 whitespace-nowrap" scope="col" aria-sort="none">Network</th>
+              <th className="pb-4 px-4 whitespace-nowrap" scope="col" aria-sort="none">Recipients</th>
+              <th className="pb-4 px-4 whitespace-nowrap" scope="col" aria-sort="none">
                 <div className="flex items-center gap-1">
                   Total Amount
                 </div>
               </th>
-              <th className="pb-4 px-4 whitespace-nowrap">Transactions</th>
-              <th className="pb-4 px-4 whitespace-nowrap">
+              <th className="pb-4 px-4 whitespace-nowrap" scope="col" aria-sort="none">Transactions</th>
+              <th
+                className="pb-4 px-4 whitespace-nowrap"
+                scope="col"
+                aria-sort={sortColumn === "status" ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+              >
                 <div className="flex items-center gap-1 cursor-pointer hover:text-gray-300" onClick={() => toggleSort("status")}>
                   Status {sortColumn === "status" ? (sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <ChevronDown className="h-3 w-3 opacity-30" />}
                 </div>
               </th>
-              <th className="pb-4 px-4 text-right whitespace-nowrap">Action</th>
+              <th className="pb-4 px-4 text-right whitespace-nowrap" scope="col">Action</th>
             </tr>
           </thead>
           <tbody className="text-sm">

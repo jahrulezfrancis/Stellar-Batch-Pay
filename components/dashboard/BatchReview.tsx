@@ -178,7 +178,7 @@ export function BatchReview(props: BatchReviewProps) {
     // Set new debounced timer
     if (recipientAddresses.length > 0) {
       debounceTimerRef.current = setTimeout(() => {
-        refetchTrustlines(recipientAddresses);
+        refetchTrustlines(recipientAddresses, { forceRefresh: true });
       }, 300);
     }
 

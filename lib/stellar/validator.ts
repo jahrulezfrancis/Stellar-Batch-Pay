@@ -8,11 +8,12 @@ import {
   PaymentInstruction,
   MemoType,
   BatchConfig,
+  BatchJobNetwork,
   HorizonBalance,
   BalancesMap,
   BalanceValidationResult,
 } from "./types";
-import { parseStellarAmount } from "./utils";
+import { parseStellarAmount, formatAmount } from "./utils";
 
 function isValidPublicKey(value: string): boolean {
   return StrKey.isValidEd25519PublicKey(value);
@@ -167,14 +168,10 @@ export function validateBatchConfig(config: BatchConfig): {
     };
   }
 
-  if (
-    config.network !== "testnet" &&
-    config.network !== "mainnet" &&
-    config.network !== "futurenet"
-  ) {
+  if (config.network !== "testnet" && config.network !== "mainnet") {
     return {
       valid: false,
-      error: "network must be 'testnet', 'mainnet', or 'futurenet'",
+      error: "network must be 'testnet' or 'mainnet'",
     };
   }
 
@@ -348,7 +345,7 @@ export function validateBatchForSubmit(
   payments: PaymentInstruction[],
   balancesMap: BalancesMap,
   missingTrustlines: string[],
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   estimatedOperations?: number,
   maxOperationsPerTransaction: number = 100,
 ): BatchSubmitValidationResult {
@@ -375,11 +372,11 @@ export function validateBatchForSubmit(
       if (!check.sufficient) {
         if (check.asset_key === "XLM" && check.xlm_reserved) {
           errors.push(
-            `Insufficient balance for XLM. Required: ${check.required} (plus ${check.xlm_reserved.toFixed(7)} reserve), Available: ${check.available}`
+            `Insufficient balance for XLM. Required: ${formatAmount(check.required)} (plus ${check.xlm_reserved.toFixed(7)} reserve), Available: ${formatAmount(check.available)}`
           );
         } else {
           errors.push(
-            `Insufficient balance for ${check.asset_key}. Required: ${check.required}, Available: ${check.available}`
+            `Insufficient balance for ${check.asset_key}. Required: ${formatAmount(check.required)}, Available: ${formatAmount(check.available)}`
           );
         }
       }

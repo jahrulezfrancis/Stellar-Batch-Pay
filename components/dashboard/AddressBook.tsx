@@ -20,6 +20,7 @@ import {
 import { useAddressBook, Contact } from "@/hooks/use-address-book";
 import { toast } from "sonner";
 import { useWallet } from "@/contexts/WalletContext";
+import { t } from "@/lib/i18n";
 
 export function AddressBook() {
   const {
@@ -49,13 +50,13 @@ export function AddressBook() {
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.address) {
-      toast.error("Please fill in both name and address");
+      toast.error(t("addressBook.fillNameAndAddress"));
       return;
     }
     addContact(formData.name, formData.address);
     setFormData({ name: "", address: "" });
     setIsAdding(false);
-    toast.success("Contact added successfully");
+    toast.success(t("addressBook.contactAdded"));
   };
 
   const handleUpdate = (e: React.FormEvent) => {
@@ -64,7 +65,7 @@ export function AddressBook() {
     updateContact(editingId, formData.name, formData.address);
     setEditingId(null);
     setFormData({ name: "", address: "" });
-    toast.success("Contact updated successfully");
+    toast.success(t("addressBook.contactUpdated"));
   };
 
   const startEdit = (contact: Contact) => {
@@ -77,7 +78,7 @@ export function AddressBook() {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
-    toast.success("Address copied to clipboard");
+    toast.success(t("addressBook.addressCopied"));
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -88,9 +89,9 @@ export function AddressBook() {
     reader.onload = (event) => {
       const content = event.target?.result as string;
       if (importContacts(content)) {
-        toast.success("Contacts imported successfully");
+        toast.success(t("addressBook.contactsImported"));
       } else {
-        toast.error("Failed to import contacts. Invalid format.");
+        toast.error(t("addressBook.importFailed"));
       }
     };
     reader.readAsText(file);
@@ -103,7 +104,7 @@ export function AddressBook() {
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
           <Input
-            placeholder="Search contacts by name or address..."
+            placeholder={t("addressBook.searchPlaceholder")}
             className="pl-10 bg-slate-900/50 border-slate-800 text-white"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -116,7 +117,7 @@ export function AddressBook() {
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload className="h-4 w-4 mr-2" />
-            Import
+            {t("addressBook.import")}
           </Button>
           <input
             type="file"
@@ -131,7 +132,7 @@ export function AddressBook() {
             onClick={exportContacts}
           >
             <Download className="h-4 w-4 mr-2" />
-            Export
+            {t("addressBook.export")}
           </Button>
           <Button
             className="bg-emerald-500 hover:bg-emerald-600 text-white"
@@ -142,7 +143,7 @@ export function AddressBook() {
             }}
           >
             <UserPlus className="h-4 w-4 mr-2" />
-            Add Contact
+            {t("addressBook.addContact")}
           </Button>
         </div>
       </div>
@@ -151,25 +152,25 @@ export function AddressBook() {
         <Card className="bg-slate-900/50 border-slate-800 animate-in fade-in slide-in-from-top-4 duration-300">
           <CardHeader>
             <CardTitle className="text-lg text-white">
-              {editingId ? "Edit Contact" : "Add New Contact"}
+              {editingId ? t("addressBook.editContact") : t("addressBook.addNewContact")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={editingId ? handleUpdate : handleAdd} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-400">Name</label>
+                  <label className="text-sm font-medium text-slate-400">{t("addressBook.name")}</label>
                   <Input
-                    placeholder="e.g. Payroll Account"
+                    placeholder={t("addressBook.namePlaceholder")}
                     className="bg-slate-950 border-slate-800 text-white"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-400">Stellar Address</label>
+                  <label className="text-sm font-medium text-slate-400">{t("addressBook.stellarAddress")}</label>
                   <Input
-                    placeholder="G..."
+                    placeholder={t("addressBook.addressPlaceholder")}
                     className="bg-slate-950 border-slate-800 text-white font-mono"
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
@@ -186,10 +187,10 @@ export function AddressBook() {
                     setEditingId(null);
                   }}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
                 <Button type="submit" className="bg-emerald-500 hover:bg-emerald-600 text-white">
-                  {editingId ? "Save Changes" : "Save Contact"}
+                  {editingId ? t("addressBook.saveChanges") : t("addressBook.saveContact")}
                 </Button>
               </div>
             </form>
@@ -202,16 +203,16 @@ export function AddressBook() {
           <table className="w-full">
             <thead className="bg-slate-900/80 border-b border-slate-800">
               <tr>
-                <th className="text-left p-4 text-sm font-medium text-slate-400">Name</th>
-                <th className="text-left p-4 text-sm font-medium text-slate-400">Address</th>
-                <th className="text-right p-4 text-sm font-medium text-slate-400">Actions</th>
+                <th className="text-left p-4 text-sm font-medium text-slate-400">{t("addressBook.name")}</th>
+                <th className="text-left p-4 text-sm font-medium text-slate-400">{t("addressBook.address")}</th>
+                <th className="text-right p-4 text-sm font-medium text-slate-400">{t("addressBook.actions")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/50">
               {filteredContacts.length === 0 ? (
                 <tr>
                   <td colSpan={3} className="p-8 text-center text-slate-500">
-                    {searchQuery ? "No contacts found matching your search." : "Your address book is empty."}
+                    {searchQuery ? t("addressBook.noSearchResults") : t("addressBook.empty")}
                   </td>
                 </tr>
               ) : (
@@ -259,9 +260,9 @@ export function AddressBook() {
                           variant="ghost"
                           className="h-8 w-8 text-slate-400 hover:text-red-500 hover:bg-red-500/10"
                           onClick={() => {
-                            if (confirm("Are you sure you want to delete this contact?")) {
+                            if (confirm(t("addressBook.deleteConfirm"))) {
                               deleteContact(contact.id);
-                              toast.success("Contact deleted");
+                              toast.success(t("addressBook.contactDeleted"));
                             }
                           }}
                         >

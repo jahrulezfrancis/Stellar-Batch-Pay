@@ -19,6 +19,15 @@ fn test_ttl_bumping_logic() {
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
 
+    let admin = Address::generate(&env);
+    client.set_admin(&admin);
+    client.set_config(&admin, &Config {
+        max_batch_size: 100,
+        max_schedules_per_recipient: 10,
+        upgrade_timelock: 7 * 24 * 60 * 60,
+        fee_asset: Address::generate(&env),
+    });
+
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
     let token_admin = Address::generate(&env);

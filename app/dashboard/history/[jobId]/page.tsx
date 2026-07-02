@@ -70,6 +70,18 @@ export default function BatchDetailPage({
   const [retryPollError, setRetryPollError] = useState<string | null>(null);
   const [retryJobData, setRetryJobData] = useState<JobStatusResponse | null>(null);
   const retryNotificationRef = useRef<string | null>(null);
+  const retryPollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryPollCancelledRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      retryPollCancelledRef.current = true;
+      if (retryPollTimeoutRef.current !== null) {
+        clearTimeout(retryPollTimeoutRef.current);
+        retryPollTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const { data, error, isLoading } = useQuery({
     queryKey: ["job", jobId, publicKey],
@@ -87,9 +99,14 @@ export default function BatchDetailPage({
 
     setRetrying(true);
     try {
+      // Generate idempotency key to prevent duplicate retry jobs on double-click (#550)
+      const idempotencyKey = crypto.randomUUID();
       const res = await fetch("/api/batch-retry", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify({ jobId, publicKey }),
       });
 
@@ -104,8 +121,6 @@ export default function BatchDetailPage({
       setRetryPollError(null);
       toast.success(`Retry job queued (${newJobId})`);
 
-      let cancelled = false;
-
       const poll = async () => {
         try {
           const r = await fetch(
@@ -113,18 +128,17 @@ export default function BatchDetailPage({
           );
           if (!r.ok) throw new Error(`Status fetch failed (${r.status})`);
           const jb = (await r.json()) as JobStatusResponse;
-          if (cancelled) return;
+          if (retryPollCancelledRef.current) return;
           setRetryJobData(jb);
           if (jb.status === "queued" || jb.status === "processing") {
-            setTimeout(poll, 2000);
+            retryPollTimeoutRef.current = setTimeout(poll, 2000);
           }
         } catch (err) {
-          if (!cancelled) setRetryPollError((err as Error).message);
+          if (!retryPollCancelledRef.current) setRetryPollError((err as Error).message);
         }
       };
 
       poll();
-      // keep retrying state while polling
     } catch (e) {
       toast.error((e as Error).message);
     } finally {

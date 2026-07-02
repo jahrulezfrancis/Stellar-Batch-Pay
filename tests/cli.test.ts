@@ -89,4 +89,25 @@ describe('CLI run() entry point', () => {
       process.stderr.write = origErr;
     }
   });
+
+  test('run() with submit exits 2 and prints NOT_IMPLEMENTED', async () => {
+    const origErr = process.stderr.write.bind(process.stderr);
+    const writes: string[] = [];
+    (process.stderr.write as unknown) = ((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    
+    const origEnv = process.env.STELLAR_SECRET_KEY;
+    process.env.STELLAR_SECRET_KEY = 'S123';
+    
+    try {
+      const code = await run(['submit', '--input', 'examples/payments.json']);
+      expect(code).toBe(2);
+      expect(writes.join('')).toMatch(/NOT_IMPLEMENTED:/);
+    } finally {
+      process.stderr.write = origErr;
+      process.env.STELLAR_SECRET_KEY = origEnv;
+    }
+  });
 });

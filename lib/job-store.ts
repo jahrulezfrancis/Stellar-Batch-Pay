@@ -29,6 +29,7 @@ import type {
   JobStatus,
   PaymentInstruction,
   BatchResult,
+  BatchJobNetwork,
 } from "./stellar/types";
 import { escapeLikePattern } from "./history-filters";
 
@@ -48,7 +49,7 @@ export class IdempotencyConflictError extends Error {
 interface BatchJobArgs {
   payments: PaymentInstruction[];
   signedTransactions?: string[];
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   publicKey: string;
 }
 
@@ -72,7 +73,7 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 
 let _db: Database.Database | null = null;
 
-function getDb(): Database.Database {
+export function getDb(): Database.Database {
   if (_db) return _db;
 
   // Ensure the data directory exists at runtime
@@ -84,6 +85,7 @@ function getDb(): Database.Database {
   // WAL mode for better concurrent read performance
   _db.pragma("journal_mode = WAL");
   _db.pragma("foreign_keys = ON");
+  _db.pragma("busy_timeout = 5000");
 
   _db.exec(`
     CREATE TABLE IF NOT EXISTS jobs (
@@ -159,7 +161,7 @@ interface JobRow {
   completedBatches: number;
   payments: string;
   signedTransactions: string | null;
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   result: string | null;
   error: string | null;
   createdAt: string;
@@ -216,7 +218,7 @@ function pruneExpiredIdempotencyKeys(db: Database.Database, nowIso: string): voi
  */
 export function createJob(
   payments: PaymentInstruction[],
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   publicKey: string,
   signedTransactions?: string[],
 ): string {
@@ -231,7 +233,7 @@ export function createIdempotentJob<ResponseBody>(args: {
   idempotencyKey: string;
   requestHash: string;
   payments: PaymentInstruction[];
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   publicKey: string;
   signedTransactions?: string[];
   buildResponseBody: (jobId: string) => ResponseBody;
@@ -304,18 +306,63 @@ export function getJob(jobId: string, publicKey?: string): JobState | undefined 
 }
 
 /**
- * Atomic DB-side increment for completedBatches to prevent read-modify-write conflicts.
+ * Atomic DB-side increment for completedBatches using optimistic version locking,
+ * consistent with updateJob. Retries up to 3 times on concurrent modification.
  */
 export function incrementCompletedBatches(jobId: string): void {
   const db = getDb();
-  const now = new Date().toISOString();
-  db.prepare(`
-    UPDATE jobs SET
-      completedBatches = completedBatches + 1,
-      updatedAt = ?,
-      version = version + 1
-    WHERE jobId = ?
-  `).run(now, jobId);
+  const maxAttempts = 3;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const row = db.prepare("SELECT version FROM jobs WHERE jobId = ?").get(jobId) as
+      | { version: number }
+      | undefined;
+    if (!row) return;
+
+    const now = new Date().toISOString();
+    const result = db.prepare(`
+      UPDATE jobs SET
+        completedBatches = completedBatches + 1,
+        updatedAt = ?,
+        version = version + 1
+      WHERE jobId = ? AND version = ?
+    `).run(now, jobId, row.version);
+
+    if (result.changes > 0) return;
+
+    // Version changed under us — retry unless last attempt
+    if (attempt === maxAttempts - 1) {
+      throw new Error(`incrementCompletedBatches: concurrent modification on job ${jobId}`);
+    }
+  }
+}
+
+const LEASE_MS = Number(process.env.IDEMPOTENCY_REPLAY_STALE_MS ?? 30000);
+
+/**
+ * Atomically claim a job for processing.
+ * Transitions a job from 'queued' to 'processing', or reclaims a stranded job
+ * whose status is 'processing' but updatedAt is older than the lease duration.
+ * Returns true if the claim was successful, false otherwise.
+ */
+export function claimJobForProcessing(jobId: string): boolean {
+  const db = getDb();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const staleTimeIso = new Date(now.getTime() - LEASE_MS).toISOString();
+
+  const result = db.prepare(`
+    UPDATE jobs
+    SET status = 'processing',
+        updatedAt = ?,
+        version = version + 1
+    WHERE jobId = ? AND (
+      status = 'queued' OR
+      (status = 'processing' AND updatedAt < ?)
+    )
+  `).run(nowIso, jobId, staleTimeIso);
+
+  return result.changes > 0;
 }
 
 /**
@@ -326,51 +373,74 @@ export function updateJob(
   patch: Partial<Omit<JobState, "jobId" | "createdAt">>,
 ): void {
   const db = getDb();
+  let attempts = 0;
+  const maxAttempts = 2;
+  
+  while (attempts < maxAttempts) {
+    try {
+      const run = db.transaction(() => {
+        const row = db.prepare("SELECT * FROM jobs WHERE jobId = ?").get(jobId) as
+          | JobRow
+          | undefined;
+        if (!row) return;
 
-  const run = db.transaction(() => {
-    const row = db.prepare("SELECT * FROM jobs WHERE jobId = ?").get(jobId) as
-      | JobRow
-      | undefined;
-    if (!row) return;
+        const now = new Date().toISOString();
+        const nextVersion = row.version + 1;
 
-    const now = new Date().toISOString();
-    const nextVersion = row.version + 1;
+        const result = db.prepare(
+          `
+          UPDATE jobs SET
+            status           = ?,
+            totalBatches     = ?,
+            completedBatches = ?,
+            result           = ?,
+            error            = ?,
+            updatedAt        = ?,
+            version          = ?
+          WHERE jobId = ? AND version = ?
+        `,
+        ).run(
+          patch.status ?? row.status,
+          patch.totalBatches ?? row.totalBatches,
+          patch.completedBatches ?? row.completedBatches,
+          patch.result !== undefined ? JSON.stringify(patch.result) : row.result,
+          patch.error ?? row.error,
+          now,
+          nextVersion,
+          jobId,
+          row.version,
+        );
 
-    const result = db.prepare(
-      `
-      UPDATE jobs SET
-        status           = ?,
-        totalBatches     = ?,
-        completedBatches = ?,
-        result           = ?,
-        error            = ?,
-        updatedAt        = ?,
-        version          = ?
-      WHERE jobId = ? AND version = ?
-    `,
-    ).run(
-      patch.status ?? row.status,
-      patch.totalBatches ?? row.totalBatches,
-      patch.completedBatches ?? row.completedBatches,
-      patch.result !== undefined ? JSON.stringify(patch.result) : row.result,
-      patch.error ?? row.error,
-      now,
-      nextVersion,
-      jobId,
-      row.version,
-    );
+        if (result.changes === 0) {
+          throw new Error(`Concurrent modification error: job ${jobId} was updated by another process.`);
+        }
+      });
 
-    if (result.changes === 0) {
-      throw new Error(`Concurrent modification error: job ${jobId} was updated by another process.`);
+      run();
+      return;
+    } catch (error: any) {
+      attempts++;
+      
+      // Check if it's an SQLITE_BUSY error
+      const isSqliteBusy = 
+        error.code === "SQLITE_BUSY" || 
+        (typeof error.message === "string" && error.message.includes("SQLITE_BUSY"));
+      
+      if (!isSqliteBusy || attempts >= maxAttempts) {
+        throw error;
+      }
+      
+      // Wait with jitter before retrying
+      const jitter = Math.random() * 100;
+      const waitMs = 100 + jitter;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
     }
-  });
-
-  run();
+  }
 }
 
 export interface JobQueryFilters {
   status?: JobStatus;
-  network?: "testnet" | "mainnet";
+  network?: BatchJobNetwork;
   publicKey?: string;
   /** Case-insensitive substring match on jobId, payments JSON, or result JSON. */
   search?: string;
@@ -382,6 +452,16 @@ export interface JobQueryFilters {
   sort?: "createdAt" | "updatedAt" | "status";
   /** Sort direction. Default: desc. */
   order?: "asc" | "desc";
+}
+
+export interface BatchHistorySummary {
+  totalJobs: number;
+  totalPayments: number;
+  totalAmount: number;
+  successfulPayments: number;
+  failedPayments: number;
+  failedJobs: number;
+  successRate: string;
 }
 
 const SORT_COLUMNS = new Set(["createdAt", "updatedAt", "status"]);
@@ -451,42 +531,7 @@ export function getAllJobs(opts?: JobQueryFilters & {
   return rows.map(rowToJobState);
 }
 
-// ---------------------------------------------------------------------------
-// Idempotency key store
-// ---------------------------------------------------------------------------
 
-/**
- * Look up the jobId previously stored for the given idempotency key.
- * Returns undefined when the key is not found or has expired.
- */
-export function getJobIdByIdempotencyKey(key: string): string | undefined {
-  const db = getDb();
-  const row = db
-    .prepare("SELECT jobId, createdAt FROM idempotency_keys WHERE key = ?")
-    .get(key) as { jobId: string; createdAt: string } | undefined;
-
-  if (!row) return undefined;
-
-  const age = Date.now() - new Date(row.createdAt).getTime();
-  if (age > IDEMPOTENCY_TTL_MS) {
-    db.prepare("DELETE FROM idempotency_keys WHERE key = ?").run(key);
-    return undefined;
-  }
-
-  return row.jobId;
-}
-
-/**
- * Persist a mapping from idempotency key to jobId.
- * Silently replaces any existing row with the same key (should never happen
- * in normal usage since keys are checked before job creation).
- */
-export function storeIdempotencyKey(key: string, jobId: string): void {
-  const db = getDb();
-  db.prepare(
-    "INSERT OR REPLACE INTO idempotency_keys (key, jobId, createdAt) VALUES (?, ?, ?)",
-  ).run(key, jobId, new Date().toISOString());
-}
 
 /**
  * Return the total count of jobs (optionally filtered).
@@ -498,6 +543,57 @@ export function countJobs(opts?: JobQueryFilters): number {
     .prepare(`SELECT COUNT(*) as cnt FROM jobs ${where}`)
     .get(...params) as { cnt: number };
   return row.cnt;
+}
+
+/**
+ * Return aggregate history metrics for the current filter set.
+ * Uses SQL-level aggregation so callers don't need to load all pages.
+ */
+export function getBatchHistorySummary(opts?: JobQueryFilters): BatchHistorySummary {
+  const db = getDb();
+  const { where, params } = buildJobQueryFilters(opts);
+  const row = db
+    .prepare(`
+      SELECT
+        COUNT(*) AS totalJobs,
+        COALESCE(SUM(json_array_length(payments)), 0) AS totalPayments,
+        COALESCE(SUM(CAST(json_extract(result, '$.totalAmount') AS REAL)), 0) AS totalAmount,
+        COALESCE(SUM(CAST(json_extract(result, '$.summary.successful') AS INTEGER)), 0) AS successfulPayments,
+        COALESCE(SUM(CAST(json_extract(result, '$.summary.failed') AS INTEGER)), 0) AS failedPayments,
+        COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failedJobs
+      FROM jobs
+      ${where}
+    `)
+    .get(...params) as {
+    totalJobs: number | null;
+    totalPayments: number | null;
+    totalAmount: number | null;
+    successfulPayments: number | null;
+    failedPayments: number | null;
+    failedJobs: number | null;
+  };
+
+  const totalJobs = row.totalJobs ?? 0;
+  const totalPayments = row.totalPayments ?? 0;
+  const totalAmount = row.totalAmount ?? 0;
+  const successfulPayments = row.successfulPayments ?? 0;
+  const failedPayments = row.failedPayments ?? 0;
+  const failedJobs = row.failedJobs ?? 0;
+  const totalProcessedPayments = successfulPayments + failedPayments;
+  const successRate =
+    totalProcessedPayments > 0
+      ? `${((successfulPayments / totalProcessedPayments) * 100).toFixed(1)}%`
+      : "0.0%";
+
+  return {
+    totalJobs,
+    totalPayments,
+    totalAmount,
+    successfulPayments,
+    failedPayments,
+    failedJobs,
+    successRate,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -74,6 +74,8 @@ export function Navbar() {
               aria-label="Toggle menu"
               className="md:hidden p-2 rounded-lg hover:bg-secondary/10"
               onClick={() => setOpen(!open)}
+              aria-expanded={open}
+              aria-controls="mobile-menu"
             >
               <svg
                 width="22"
@@ -109,7 +111,7 @@ export function Navbar() {
         </div>
 
         {open && (
-          <div className="md:hidden py-2 flex flex-col gap-2 pb-4">
+          <div id="mobile-menu" className="md:hidden py-2 flex flex-col gap-2 pb-4">
             <Link
               href="/#features"
               className="px-2 py-2 rounded text-[#E5E7EB] hover:bg-secondary/10"

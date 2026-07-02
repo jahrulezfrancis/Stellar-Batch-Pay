@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ConditionalAnalytics } from "@/components/conditional-analytics";
 import StellarFooter from "@/components/landing/StellarFooter";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { WalletProvider } from "@/contexts/WalletContext";
 import { AddressBookProvider } from "@/contexts/AddressBookContext";
 import { NetworkWarning } from "@/components/network-warning";
@@ -46,6 +47,10 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
+        url: "/icon.svg",
+        type: "image/svg+xml",
+      },
+      {
         url: "/icon-light-32x32.png",
         type: "image/png",
         media: "(prefers-color-scheme: light)",
@@ -77,13 +82,19 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${_geist.variable} ${_geistMono.variable} font-sans antialiased bg-background text-foreground`}>
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-emerald-500 focus:px-4 focus:py-2 focus:text-black focus:outline-none focus:ring-2 focus:ring-emerald-200"
+        >
+          Skip to main content
+        </a>
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
           enableSystem
           disableTransitionOnChange
         >
-          <WalletProvider expectedNetwork="testnet">
+          <WalletProvider expectedNetwork={(process.env.NEXT_PUBLIC_STELLAR_NETWORK as "testnet" | "mainnet") ?? "testnet"}>
             <QueryProvider>
               <AddressBookProvider>
                 {children}
@@ -92,6 +103,7 @@ export default function RootLayout({
             </QueryProvider>
           </WalletProvider>
           <Toaster />
+          <SonnerToaster />
           <ConditionalAnalytics />
         </ThemeProvider>
       </body>

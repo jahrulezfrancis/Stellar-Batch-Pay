@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Bell, CheckCheck, Clock3, ExternalLink, Inbox, Trash2 } from "lucide-react";
+import { Bell, CheckCheck, Clock3, ExternalLink, Inbox, Trash2, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -123,6 +123,19 @@ export function NotificationsPanel() {
               aria-label="Clear notifications"
             >
               <Trash2 className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                setOpen(false);
+                router.push("/dashboard/settings");
+              }}
+              className="h-9 w-9 text-gray-400 hover:bg-white/5 hover:text-white"
+              aria-label="Notification preferences"
+            >
+              <Settings className="h-4 w-4" />
             </Button>
           </div>
         </div>

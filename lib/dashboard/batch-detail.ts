@@ -1,4 +1,8 @@
-import type { BatchResult, PaymentResult } from "@/lib/stellar/types";
+import type {
+  BatchResult,
+  PaymentResult,
+  BatchJobNetwork,
+} from "@/lib/stellar/types";
 
 export interface BatchDetailRecipient {
   address: string;
@@ -12,7 +16,7 @@ export interface BatchDetailRecipient {
 export interface BatchDetailView {
   jobId: string;
   status: "queued" | "processing" | "completed" | "failed";
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   createdAt?: string;
   completedAt?: string;
   totalBatches?: number;
@@ -27,7 +31,7 @@ export interface BatchDetailView {
 interface BatchStatusApiResponse {
   jobId: string;
   status: "queued" | "processing" | "completed" | "failed";
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   createdAt?: string;
   updatedAt?: string;
   totalBatches?: number;

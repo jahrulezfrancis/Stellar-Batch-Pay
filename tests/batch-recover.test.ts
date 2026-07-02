@@ -1,8 +1,9 @@
 /**
- * Integration tests for GET /api/batch-recover (#320).
+ * Integration tests for GET /api/batch-recover (#320, #538).
  *
  * Verifies that the route reads from SQLite (job-store) — not IndexedDB —
- * and returns the correct HTTP status codes.
+ * and returns the correct HTTP status codes. Also covers the IDOR fix (#538):
+ * publicKey is now required and job lookup is always ownership-scoped.
  */
 
 import { beforeEach, describe, expect, test } from "vitest";
@@ -74,6 +75,14 @@ describe("GET /api/batch-recover", () => {
     expect(body.error).toMatch(/jobId/i);
   });
 
+  test("returns 400 when publicKey is missing (#538 IDOR fix)", async () => {
+    const res = await GET(makeRequest({ jobId }) as never);
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/publicKey/i);
+  });
+
   test("returns 404 when publicKey does not match the job owner", async () => {
     const res = await GET(makeRequest({ jobId, publicKey: "GCCC" }) as never);
 
@@ -84,5 +93,15 @@ describe("GET /api/batch-recover", () => {
     const res = await GET(makeRequest({ jobId, publicKey: PUBLIC_KEY }) as never);
 
     expect(res.status).toBe(200);
+  });
+
+  test("does not leak job data for a valid jobId with wrong publicKey (#538)", async () => {
+    const otherKey = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const res = await GET(makeRequest({ jobId, publicKey: otherKey }) as never);
+    const body = await res.json();
+
+    expect(res.status).toBe(404);
+    expect(body).not.toHaveProperty("successfulTransactions");
+    expect(body).not.toHaveProperty("failedTransactions");
   });
 });

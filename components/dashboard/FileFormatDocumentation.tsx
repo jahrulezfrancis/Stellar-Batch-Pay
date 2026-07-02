@@ -64,10 +64,13 @@ GDVXMSTPXZ7QFWDZ7QFWDZ7QFWDZ7QFWDZ7QFWDZ7QFWDZ7Q,75.25,XLM,,`}</code>
               <p className="text-slate-300 text-sm">
                 All recipient addresses must be valid Stellar addresses. Memo is
                 optional: text memos must be 28 bytes or less, ID memos must be
-                valid integers. Stellar supports one memo per transaction. Large
-                memos increase transaction size; batches approaching 90KB may be
-                split automatically, and very large single payments can exceed
-                the 100KB network limit.
+                valid integers. Stellar supports one memo per transaction, so
+                rows grouped into the same transaction must use the same memo and
+                memo type. If recipients need distinct memo values, they must be
+                split into separate transactions. Large memos increase
+                transaction size; batches approaching 90KB may be split
+                automatically, and very large single payments can exceed the
+                100KB network limit.
               </p>
             </div>
           </div>

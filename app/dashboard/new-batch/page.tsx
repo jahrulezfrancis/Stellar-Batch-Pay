@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileUpload } from "@/components/file-upload";
-import { DashboardWalletEmpty } from "@/components/dashboard/dashboard-wallet-empty";
+
 import { MotionSafe } from "@/components/motion-safe";
 import { motionCssDuration, stepEnter } from "@/lib/motion-tokens";
 import { BatchDryRun } from "@/components/dashboard/BatchDryRun";
@@ -26,35 +26,156 @@ import { BatchReview } from "@/components/dashboard/BatchReview";
 import Link from "next/link";
 import { BatchErrorBoundary } from "@/components/BatchErrorBoundary";
 import { BatchFlowProvider, useBatchFlow } from "@/contexts/BatchFlowContext";
+import { DashboardWalletEmpty } from "@/components/dashboard/dashboard-wallet-empty";
 import { t } from "@/lib/i18n";
+import type {
+  PaymentInstruction,
+  ParsedPaymentFile,
+  BatchResult,
+  JobStatus,
+} from "@/lib/stellar/types";
+import { canonicalizeIdempotencyPayload } from "@/lib/idempotency";
+
+const NEW_BATCH_STATE_KEY = "new_batch_state";
+
+async function buildBatchSubmitIdempotencyKey(body: {
+  payments?: PaymentInstruction[];
+  network: "testnet" | "mainnet";
+  publicKey: string;
+}) {
+  const canonicalBody = canonicalizeIdempotencyPayload({
+    payments: body.payments ?? null,
+    network: body.network,
+    publicKey: body.publicKey,
+  });
+
+  const webCrypto = globalThis.crypto;
+
+  if (!webCrypto?.subtle) {
+    return webCrypto?.randomUUID() ?? `${Date.now()}-${Math.random()}`;
+  }
+
+  const encoded = new TextEncoder().encode(canonicalBody);
+  const digest = await webCrypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 function NewBatchPaymentPageContent() {
+  const { publicKey } = useWallet();
   const {
     step,
     setStep,
+    selectedNetwork,
+    setSelectedNetwork,
     file,
+    setFile,
     fileFormat,
+    setFileFormat,
     validationResult,
+    setValidationResult,
     validationError,
+    setValidationError,
     summary,
+    setSummary,
     isSubmitting,
+    setIsSubmitting,
     result,
+    setResult,
     jobId,
+    setJobId,
     jobStatus,
+    setJobStatus,
     completedBatches,
+    setCompletedBatches,
     totalBatches,
+    setTotalBatches,
     manualPayments,
     setManualPayments,
     entryMode,
     setEntryMode,
+    skippedIndices,
+    setSkippedIndices,
+    convertedIndices,
+    setConvertedIndices,
+    batchMeta,
+    setBatchMeta,
     batchMetaLoading,
-    handleManualContinue,
+    setBatchMetaLoading,
+    estimatedFees,
+    setEstimatedFees,
+    onSkipToggle,
+    onConvertToggle,
+    handleRetryFailed,
     handleFileSelect,
+    handleManualContinue,
     loadBatchMeta,
+    onSubmit,
     handleRestore,
   } = useBatchFlow();
 
-  const { publicKey } = useWallet();
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasLoadedSavedStateRef = useRef(false);
+
+  // Store only non-sensitive flow metadata. Recipient addresses, amounts, and
+  // validation details must never be persisted in browser storage.
+  useEffect(() => {
+    if (!hasLoadedSavedStateRef.current) return;
+
+    if (result || jobStatus === "completed") {
+      sessionStorage.removeItem(NEW_BATCH_STATE_KEY);
+      return;
+    }
+
+    const stateToSave = {
+      step: jobId ? step : 1,
+      selectedNetwork,
+      entryMode,
+      jobId,
+      jobStatus,
+    };
+
+    sessionStorage.setItem(NEW_BATCH_STATE_KEY, JSON.stringify(stateToSave));
+  }, [
+    step,
+    setStep,
+    file,
+    setFile,
+    fileFormat,
+    setFileFormat,
+    validationResult,
+    setValidationResult,
+    validationError,
+    setValidationError,
+    summary,
+    setSummary,
+    isSubmitting,
+    setIsSubmitting,
+    result,
+    setResult,
+    jobId,
+    setJobId,
+    jobStatus,
+    setJobStatus,
+    completedBatches,
+    setCompletedBatches,
+    totalBatches,
+    setTotalBatches,
+    manualPayments,
+    setManualPayments,
+    entryMode,
+    setEntryMode,
+    selectedNetwork,
+    setSelectedNetwork,
+    batchMetaLoading,
+    setBatchMetaLoading,
+    estimatedFees,
+    setEstimatedFees,
+    handleFileSelect,
+    handleRestore,
+    loadBatchMeta,
+  ]);
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -75,10 +196,6 @@ function NewBatchPaymentPageContent() {
     { id: 4, name: t("newBatch.stepSubmit") },
   ];
 
-  const estimatedFees = summary
-    ? (summary.validCount * 0.0001).toFixed(4)
-    : "0.0000";
-
   const canNavigateToStep = (targetStep: number): boolean => {
     if (targetStep === step) return true;
     if (targetStep === 1) return true;
@@ -93,6 +210,12 @@ function NewBatchPaymentPageContent() {
       setStep(targetStep);
     }
   };
+
+  const displayFees = estimatedFees
+    ? estimatedFees
+    : summary
+      ? (summary.validCount * 0.0001).toFixed(4)
+      : "0.0000";
 
   return (
     <div className="space-y-6">
@@ -344,11 +467,16 @@ function NewBatchPaymentPageContent() {
                           </div>
                         </div>
                         <div className="p-4 bg-slate-950 border border-slate-800 rounded-lg">
-                          <div className="text-xs text-slate-500 uppercase font-bold mb-1">
+                          <div className="text-xs text-slate-500 uppercase font-bold mb-1 flex items-center gap-1">
                             {t("newBatch.estFees")}
+                            {!estimatedFees && (
+                              <span className="text-slate-600" title="Approximation based on 0.0001 XLM per payment. Click 'Review Batch' for accurate estimate using current network fees.">
+                                (approx.)
+                              </span>
+                            )}
                           </div>
                           <div className="text-xl font-bold text-white">
-                            {estimatedFees} XLM
+                            {displayFees} XLM
                           </div>
                         </div>
                       </div>

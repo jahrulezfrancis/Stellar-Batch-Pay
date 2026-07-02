@@ -11,6 +11,7 @@ import {
   parseStellarAmount,
   formatStellarAmount,
   sumStellarAmounts,
+  amountToStroopsI128,
 } from "../lib/stellar/utils";
 
 // ---------------------------------------------------------------------------
@@ -138,5 +139,73 @@ describe("formatStellarAmount", () => {
 
   test("pads short decimals to 7 places", () => {
     expect(formatStellarAmount(new Big("100.5"))).toBe("100.5000000");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// amountToStroopsI128 — decimal-safe stroop conversion (#506)
+//
+// These assert EXACT i128 stroop integers for the boundary amounts that the old
+// `BigInt(Math.round(parseFloat(amt) * 1e7))` path could not represent faithfully.
+// ---------------------------------------------------------------------------
+
+describe("amountToStroopsI128 — exact stroop values", () => {
+  test("converts whole number to stroops", () => {
+    expect(amountToStroopsI128("100")).toBe(1_000_000_000n);
+  });
+
+  test("converts a single stroop (smallest unit)", () => {
+    expect(amountToStroopsI128("0.0000001")).toBe(1n);
+  });
+
+  test("converts zero", () => {
+    expect(amountToStroopsI128("0")).toBe(0n);
+  });
+
+  test("converts max-precision 7-decimal value exactly", () => {
+    // parseFloat("0.1234567") * 1e7 = 1234566.9999999998 → Math.round = 1234567,
+    // but other values drift; big.js is exact for all of them.
+    expect(amountToStroopsI128("0.1234567")).toBe(1_234_567n);
+  });
+
+  test("converts large payroll amount without float drift", () => {
+    expect(amountToStroopsI128("123456789.1234567")).toBe(1_234_567_891_234_567n);
+  });
+
+  test("converts the 9s edge case exactly", () => {
+    expect(amountToStroopsI128("99999999.9999999")).toBe(999_999_999_999_999n);
+  });
+
+  test("preserves trailing zeros as the same stroop integer", () => {
+    expect(amountToStroopsI128("1.5")).toBe(15_000_000n);
+    expect(amountToStroopsI128("1.5000000")).toBe(15_000_000n);
+  });
+
+  test("converts the maximum Stellar amount", () => {
+    expect(amountToStroopsI128("922337203685.4775807")).toBe(
+      9_223_372_036_854_775_807n,
+    );
+  });
+
+  test("rejects more than 7 decimal places before conversion", () => {
+    expect(() => amountToStroopsI128("0.12345678")).toThrow(
+      /more than 7 decimal places/,
+    );
+  });
+
+  test("rejects scientific notation", () => {
+    expect(() => amountToStroopsI128("1e7")).toThrow(/scientific notation/);
+  });
+
+  test("rejects NaN / non-numeric strings", () => {
+    expect(() => amountToStroopsI128("abc")).toThrow(/not a valid number/);
+  });
+
+  test("rejects empty strings", () => {
+    expect(() => amountToStroopsI128("")).toThrow(/non-empty string/);
+  });
+
+  test("rejects negative amounts", () => {
+    expect(() => amountToStroopsI128("-1")).toThrow(/negative/);
   });
 });

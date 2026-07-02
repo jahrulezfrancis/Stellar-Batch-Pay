@@ -14,7 +14,9 @@ import {
   YAxis,
 } from "recharts";
 
-// Sample data for the last 7 days
+// Sample data — only rendered in `previewMode` (marketing / unconnected
+// screenshots). #518: never shown to a connected wallet, which must always see
+// API-driven volume or an honest empty state.
 const data7Days = [
   { date: "Jan 15", amount: 12500 },
   { date: "Jan 16", amount: 15800 },
@@ -73,30 +75,58 @@ export interface PaymentVolumeChartProps {
     "30d"?: PaymentVolumePoint[];
     "90d"?: PaymentVolumePoint[];
   };
+  /**
+   * #518: opt-in to the built-in sample arrays for marketing screenshots or
+   * the unconnected-wallet preview. Defaults to `false` so a connected
+   * wallet with no history sees an honest empty state instead of fictional
+   * volume that looks like real financial data.
+   */
+  previewMode?: boolean;
+}
+
+/**
+ * Choose the series the chart renders for a given range. (#518)
+ *
+ * Priority: live data for the range → sample arrays only when `previewMode`
+ * is set → otherwise an empty series so the chart shows an honest empty state
+ * rather than mock volume. Kept as a pure, exported function so the
+ * connected-wallet guarantee (mock never leaks) is unit-testable without a DOM.
+ */
+export function selectVolumeSeries(
+  timeRange: TimeRange,
+  data: PaymentVolumeChartProps["data"],
+  previewMode: boolean,
+): PaymentVolumePoint[] {
+  const live = data?.[timeRange];
+  if (live && live.length > 0) return live;
+
+  if (!previewMode) return [];
+
+  switch (timeRange) {
+    case "30d":
+      return data30Days;
+    case "90d":
+      return data90Days;
+    case "7d":
+    default:
+      return data7Days;
+  }
 }
 
 export function PaymentVolumeChart({
   onRangeChange,
   initialRange = "7d",
   data,
+  previewMode = false,
 }: PaymentVolumeChartProps = {}) {
   const [timeRange, setTimeRange] = useState<TimeRange>(initialRange);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-  const getData = () => {
-    const live = data?.[timeRange];
-    if (live && live.length > 0) return live;
-    switch (timeRange) {
-      case "7d":
-        return data7Days;
-      case "30d":
-        return data30Days;
-      case "90d":
-        return data90Days;
-      default:
-        return data7Days;
-    }
-  };
+  const chartData = selectVolumeSeries(timeRange, data, previewMode);
+  const isEmpty = chartData.length === 0;
+  // The fallback sample arrays are showing — flag it so the data is never
+  // mistaken for real volume.
+  const showingSample = previewMode && !(data?.[timeRange]?.length);
 
   const getLabel = () => {
     switch (timeRange) {
@@ -115,7 +145,14 @@ export function PaymentVolumeChart({
     <Card className="h-full border-[#1F2937] bg-[#121827]">
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-white">Payment Volume</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold text-white">Payment Volume</h2>
+            {showingSample && (
+              <span className="rounded bg-[#1F2937] px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-400">
+                Sample data
+              </span>
+            )}
+          </div>
           <div className="relative">
             <Button
               variant="outline"
@@ -150,9 +187,17 @@ export function PaymentVolumeChart({
         </div>
 
         <div className="h-48">
+          {isEmpty ? (
+            <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
+              <p className="text-sm font-medium text-gray-300">No payment volume yet</p>
+              <p className="text-xs text-gray-500">
+                Send a batch payment to start tracking your volume here.
+              </p>
+            </div>
+          ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart
-              data={getData()}
+              data={chartData}
               margin={{ top: 5, right: 5, left: -20, bottom: 0 }}
             >
               <defs>
@@ -204,6 +249,7 @@ export function PaymentVolumeChart({
               />
             </AreaChart>
           </ResponsiveContainer>
+          )}
         </div>
       </CardContent>
     </Card>

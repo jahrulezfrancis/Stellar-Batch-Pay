@@ -7,7 +7,7 @@
  * stroops, u64 timestamps, and the memo vector. If the TS layer ever drifts
  * from the deployed contract ABI these assertions break before WASM ever runs.
  *
- * Also exercises a few CLI happy paths against the in-repo `cli/index.mjs`
+ * Also exercises a few CLI happy paths against the in-repo `cli/index.ts`
  * so the package's documented developer flow (validate / build) doesn't
  * silently regress.
  */
@@ -233,17 +233,17 @@ describe('buildDepositTransaction — Soroban arg encoding', () => {
 // example-cli.sh, which had no chance of succeeding.
 
 describe('CLI smoke', () => {
-  const cli = path.join(process.cwd(), 'cli', 'index.mjs');
+  const cli = path.join(process.cwd(), 'cli', 'index.ts');
 
   test('--help exits 0 and mentions the three commands', () => {
-    const out = execFileSync('node', [cli, '--help'], { encoding: 'utf-8' });
+    const out = execFileSync('bun', [cli, '--help'], { encoding: 'utf-8' });
     expect(out).toMatch(/validate/);
     expect(out).toMatch(/build/);
     expect(out).toMatch(/submit/);
   });
 
   test('--version prints the package name and version', () => {
-    const out = execFileSync('node', [cli, '--version'], { encoding: 'utf-8' });
+    const out = execFileSync('bun', [cli, '--version'], { encoding: 'utf-8' });
     expect(out).toMatch(/stellar-batch-pay/);
   });
 
@@ -264,7 +264,7 @@ describe('CLI smoke', () => {
     fs.writeFileSync(tmpPath, payload);
 
     try {
-      const out = execFileSync('node', [cli, 'validate', tmpPath], {
+      const out = execFileSync('bun', [cli, 'validate', tmpPath], {
         encoding: 'utf-8',
       });
       const parsed = JSON.parse(out);

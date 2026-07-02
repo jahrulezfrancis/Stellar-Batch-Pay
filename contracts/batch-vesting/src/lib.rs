@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, token, Address, BytesN, Env, String, Symbol, Vec,
+    contract, contractimpl, contracttype, token, Address, BytesN, Env, Map, String, Symbol, Vec,
 };
 
 const MAX_BATCH_SIZE: u32 = 100;
@@ -66,6 +66,10 @@ pub struct Config {
     pub max_batch_size: u32,
     pub max_schedules_per_recipient: u32,
     pub upgrade_timelock: u64,
+    /// #543: The only token accepted for fee collection. Set at contract
+    /// initialization and cannot be changed without a full config update.
+    /// This prevents admin from switching to an arbitrary/scam token.
+    pub fee_asset: Address,
 }
 
 #[contracttype]
@@ -76,8 +80,8 @@ pub struct FeeConfig {
     pub fee_per_recipient: i128,
     /// Address that receives collected fees (treasury or admin wallet).
     pub treasury: Address,
-    /// #302: The asset used for fee collection. Must be validated to be native XLM.
-    pub fee_asset: Address,
+    // #543: fee_asset removed from FeeConfig - now stored in contract Config
+    // to prevent admin from changing the fee token arbitrarily.
 }
 
 /// Legacy storage type used only during migration from the old Vec<VestingData> layout.
@@ -148,6 +152,8 @@ pub enum VestingError {
     NotRecipient = 17,
     /// #308: batch_revoke requests were not provided in strictly descending index order.
     InvalidInput = 18,
+    /// #543: Provided fee asset is not the whitelisted token from contract config.
+    InvalidToken = 19,
 }
 
 impl BatchVestingContract {
@@ -188,11 +194,7 @@ impl BatchVestingContract {
         env.storage()
             .persistent()
             .get(&DataKey::Config)
-            .unwrap_or(Config {
-                max_batch_size: MAX_BATCH_SIZE,
-                max_schedules_per_recipient: MAX_SCHEDULES_PER_RECIPIENT,
-                upgrade_timelock: UPGRADE_TIMELOCK,
-            })
+            .unwrap_or_else(|| soroban_sdk::panic_with_error!(env, VestingError::NotFound))
     }
 
     fn set_config_internal(env: &Env, config: &Config) {
@@ -654,7 +656,7 @@ impl BatchVestingContract {
             for j in 0..token_transfers.len() {
                 let (t, amt) = token_transfers.get(j).unwrap();
                 if t == token {
-                    token_transfers.set(j, (t.clone(), amt + amount));
+                    token_transfers.set(j, (t.clone(), amt.checked_add(amount).unwrap_or_else(|| soroban_sdk::panic_with_error!(&env, VestingError::Overflow))));
                     found = true;
                     break;
                 }
@@ -672,11 +674,14 @@ impl BatchVestingContract {
         }
 
         // Collect per-recipient fee if configured.
-        // The fee is charged in the configured fee_asset token (typically native XLM).
+        // The fee is charged in the contract's whitelisted fee_asset token (typically native XLM).
         // Fees are transferred directly to the treasury — they never enter the
         // vesting pool, so recipients are unaffected.
+        // #543: fee_asset comes from contract config, not fee_config, preventing
+        // admin from switching to an arbitrary/scam token after deployment.
         if let Some(fee_cfg) = Self::get_fee_config(&env) {
             if fee_cfg.fee_per_recipient > 0 {
+                let config = Self::get_config(&env);
                 let n = recipients.len() as i128;
                 let total_fee = fee_cfg
                     .fee_per_recipient
@@ -684,13 +689,13 @@ impl BatchVestingContract {
                     .unwrap_or_else(|| soroban_sdk::panic_with_error!(&env, VestingError::Overflow));
                 // #331: Always transfer fees in fee_asset regardless of batch token composition.
                 // Multi-token batches may have different assets; fees are always collected
-                // in the configured fee_asset (typically native XLM), not tokens[0].
-                let fee_token_client = token::Client::new(&env, &fee_cfg.fee_asset);
+                // in the whitelisted fee_asset (typically native XLM), not tokens[0].
+                let fee_token_client = token::Client::new(&env, &config.fee_asset);
                 fee_token_client.transfer(&sender, &fee_cfg.treasury, &total_fee);
 
                 env.events().publish(
                     (Symbol::new(&env, "FeeCollected"), sender.clone()),
-                    (total_fee, fee_cfg.fee_asset.clone(), fee_cfg.treasury),
+                    (total_fee, config.fee_asset.clone(), fee_cfg.treasury),
                 );
             }
         }
@@ -772,13 +777,16 @@ impl BatchVestingContract {
     }
 
     /// Update contract configuration. Only admin can call this.
+    ///
+    /// #543: The `fee_asset` field sets the single whitelisted token for fee
+    /// collection. Once set, fees can only be collected in this token.
     pub fn set_config(env: Env, admin: Address, config: Config) {
         Self::require_current_admin(&env, &admin);
         Self::set_config_internal(&env, &config);
 
         env.events().publish(
             (Symbol::new(&env, "ConfigUpdated"),),
-            (config.max_batch_size, config.max_schedules_per_recipient, config.upgrade_timelock),
+            (config.max_batch_size, config.max_schedules_per_recipient, config.upgrade_timelock, config.fee_asset),
         );
     }
 
@@ -786,8 +794,11 @@ impl BatchVestingContract {
     ///
     /// Set `fee_per_recipient` to 0 to disable fees entirely.
     /// The `treasury` address receives all collected fees.
-    /// The `fee_asset` parameter specifies which token (typically native XLM)
-    /// is used for fee collection and must be validated against a whitelist.
+    ///
+    /// #543 Security: The fee asset is NOT configurable here — it is set once
+    /// at contract initialization via `set_config` and stored in the contract
+    /// config. This prevents a malicious or compromised admin from switching
+    /// the fee asset to an arbitrary/scam token to drain depositors.
     ///
     /// Security note: fees are immutable within a single `deposit` transaction —
     /// the fee parameters are read once at the start of each deposit call,
@@ -797,20 +808,21 @@ impl BatchVestingContract {
     /// appropriate low/med/high thresholds so that fee changes require
     /// M-of-N signers, preventing a single compromised key from draining
     /// depositors via inflated fees.
-    pub fn set_fee_config(env: Env, admin: Address, fee_per_recipient: i128, treasury: Address, fee_asset: Address) {
+    pub fn set_fee_config(env: Env, admin: Address, fee_per_recipient: i128, treasury: Address) {
         Self::require_current_admin(&env, &admin);
         if fee_per_recipient < 0 {
             soroban_sdk::panic_with_error!(&env, VestingError::InvalidAmount);
         }
-        // #302: Validate that the fee asset is the expected fee token (whitelisted)
-        // For now, we accept the fee_asset as-is. In production, you may want to
-        // validate against a whitelist of known XLM contract addresses.
-        let config = FeeConfig { fee_per_recipient, treasury: treasury.clone(), fee_asset: fee_asset.clone() };
+        // #543: fee_asset is intentionally NOT a parameter — it comes from config
+        // and cannot be changed via this function.
+        let config = FeeConfig { fee_per_recipient, treasury: treasury.clone() };
         Self::set_fee_config_internal(&env, &config);
 
+        // #543: Emit event with the whitelisted fee asset from config for transparency
+        let contract_config = Self::get_config(&env);
         env.events().publish(
             (Symbol::new(&env, "FeeConfigUpdated"),),
-            (fee_per_recipient, treasury, fee_asset),
+            (fee_per_recipient, treasury, contract_config.fee_asset),
         );
     }
 
@@ -922,7 +934,7 @@ impl BatchVestingContract {
 
         env.events().publish(
             (Symbol::new(&env, "VestingRevoked"), recipient, sender),
-            (revoked_amount, pending_vested, token, vesting.memo),
+            (revoked_amount, pending_vested, token, vesting.memo.clone(), vesting.batch_id),
         );
     }
 
@@ -1032,11 +1044,20 @@ impl BatchVestingContract {
     /// swap-with-last removal strategy does not corrupt the indices of
     /// subsequent requests targeting the same recipient (#198).
     ///
-    /// #308: The previous O(N²) insertion sort is replaced with an O(N)
-    /// validation pass.  Sorting is pushed to the caller (off-chain), which
-    /// keeps on-chain instruction counts well within Soroban's per-transaction
-    /// resource limits for batches up to MAX_BATCH_SIZE (100).  Unsorted input
-    /// is rejected immediately with VestingError::InvalidInput.
+    /// #308: The previous O(N²) insertion sort is replaced with a validation
+    /// pass.  Sorting is pushed to the caller (off-chain), which keeps on-chain
+    /// instruction counts well within Soroban's per-transaction resource limits
+    /// for batches up to MAX_BATCH_SIZE (100).  Unsorted input is rejected
+    /// immediately with VestingError::InvalidInput.
+    ///
+    /// #505: The ordering check enforces strictly descending `index` *globally*
+    /// per recipient, not merely between adjacent requests.  Comparing only
+    /// consecutive entries allowed interleaved same-recipient requests
+    /// (separated by another recipient) to pass validation while still being
+    /// out of order — e.g. `(R,2), (Other,5), (R,0), (R,1)` — which corrupts
+    /// indices once swap-with-last removal runs.  We track the last index seen
+    /// per recipient and reject any request whose index is not strictly smaller
+    /// than the previous one for that same recipient.
     pub fn batch_revoke(env: Env, caller: Address, requests: Vec<RevokeRequest>) -> Vec<bool> {
         Self::panic_if_operation_paused(&env, PAUSE_REVOKE);
         caller.require_auth();
@@ -1047,19 +1068,20 @@ impl BatchVestingContract {
             return Vec::new(&env);
         }
 
-        // O(N) validation: each request's index must be strictly less than the
-        // previous one (descending order).  We only enforce ordering between
-        // consecutive requests for the same recipient; different recipients are
-        // independent and may appear in any relative order.
+        // Validate strictly-descending index order per recipient across the
+        // ENTIRE request vector (not just adjacent pairs).  `last_index` maps a
+        // recipient to the index of its most recent request seen so far; any new
+        // request for that recipient must have a strictly smaller index. (#505)
         if n > 1 {
-            for i in 1..n {
-                let prev = requests.get(i - 1).unwrap();
+            let mut last_index: Map<Address, u32> = Map::new(&env);
+            for i in 0..n {
                 let curr = requests.get(i).unwrap();
-                // Only compare when the recipient is the same — different
-                // recipients have independent index spaces.
-                if prev.recipient == curr.recipient && prev.index <= curr.index {
-                    soroban_sdk::panic_with_error!(&env, VestingError::InvalidInput);
+                if let Some(prev_index) = last_index.get(curr.recipient.clone()) {
+                    if curr.index >= prev_index {
+                        soroban_sdk::panic_with_error!(&env, VestingError::InvalidInput);
+                    }
                 }
+                last_index.set(curr.recipient.clone(), curr.index);
             }
         }
 
@@ -1129,7 +1151,7 @@ impl BatchVestingContract {
 
             env.events().publish(
                 (Symbol::new(&env, "VestingRevoked"), recipient.clone(), sender),
-                (revoked_amount, pending_vested, token, vesting.memo),
+                (revoked_amount, pending_vested, token, vesting.memo.clone(), vesting.batch_id),
             );
             results.set(k, true);
         }
@@ -1138,6 +1160,12 @@ impl BatchVestingContract {
 
     /// Revoke unvested schedules for multiple (recipient, index) pairs atomically.
     /// Reverts the entire transaction if any revocation fails.
+    ///
+    /// Requests MUST be provided pre-sorted in strictly descending order of
+    /// `index` within each recipient (same requirement as `batch_revoke`).
+    /// This keeps on-chain instruction counts O(N) and within Soroban resource
+    /// limits for batches up to MAX_BATCH_SIZE (100). Unsorted input is
+    /// rejected immediately with VestingError::InvalidInput. (#544)
     pub fn revoke_batch(env: Env, caller: Address, requests: Vec<RevokeRequest>) {
         Self::panic_if_operation_paused(&env, PAUSE_REVOKE);
         caller.require_auth();
@@ -1148,34 +1176,26 @@ impl BatchVestingContract {
             return;
         }
 
+        // O(N) validation: require strictly descending index per recipient so
+        // swap-with-last removal does not corrupt pending indices. Sorting is
+        // pushed to the caller (off-chain). (#544 / #308)
+        if n > 1 {
+            let mut last_index: Map<Address, u32> = Map::new(&env);
+            for i in 0..n {
+                let curr = requests.get(i).unwrap();
+                if let Some(prev_index) = last_index.get(curr.recipient.clone()) {
+                    if curr.index >= prev_index {
+                        soroban_sdk::panic_with_error!(&env, VestingError::InvalidInput);
+                    }
+                }
+                last_index.set(curr.recipient.clone(), curr.index);
+            }
+        }
+
         let current_time = env.ledger().timestamp();
 
-        // Build a process_order array and sort in DESCENDING order of index
-        // to prevent swap-with-last removal from corrupting pending indices.
-        let mut process_order: Vec<u32> = Vec::new(&env);
         for k in 0..n {
-            process_order.push_back(k);
-        }
-        for i in 1..n {
-            let key = process_order.get(i).unwrap();
-            let key_idx = requests.get(key).unwrap().index;
-            let mut j = i;
-            while j > 0 {
-                let prev = process_order.get(j - 1).unwrap();
-                let prev_idx = requests.get(prev).unwrap().index;
-                if prev_idx < key_idx {
-                    process_order.set(j, prev);
-                    j -= 1;
-                } else {
-                    break;
-                }
-            }
-            process_order.set(j, key);
-        }
-
-        for k in 0..n {
-            let pos = process_order.get(k).unwrap();
-            let request = requests.get(pos).unwrap();
+            let request = requests.get(k).unwrap();
             let recipient = &request.recipient;
             let index = request.index;
 
@@ -1230,7 +1250,7 @@ impl BatchVestingContract {
 
             env.events().publish(
                 (Symbol::new(&env, "VestingRevoked"), recipient.clone(), sender),
-                (revoked_amount, pending_vested, token, vesting.memo),
+                (revoked_amount, pending_vested, token, vesting.memo.clone(), vesting.batch_id),
             );
         }
     }

@@ -35,6 +35,27 @@ export function AppHeader() {
   const [showMainnetWarning, setShowMainnetWarning] = React.useState(false)
   const [pendingNetwork, setPendingNetwork] = React.useState<"mainnet" | "testnet" | null>(null)
   const [searchQuery, setSearchQuery] = React.useState("")
+  const [isTyping, setIsTyping] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!isDashboard) {
+      setSearchQuery("")
+      setIsTyping(false)
+    }
+  }, [isDashboard])
+
+  React.useEffect(() => {
+    if (!isTyping) return
+
+    const timer = setTimeout(() => {
+      const query = searchQuery.trim()
+      if (query) {
+        router.push(`/dashboard/history?search=${encodeURIComponent(query)}`)
+      }
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [searchQuery, isTyping, router])
 
   // Simple breadcrumb logic based on path
   const pathsegments = pathname.split("/").filter(Boolean)
@@ -91,7 +112,10 @@ export function AppHeader() {
                 type="search"
                 placeholder="Search batch history..."
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value)
+                  setIsTyping(true)
+                }}
                 className="h-10 w-full border-[#1F2937] bg-[#1F293780]/30 pl-10 text-white placeholder-gray-500 focus:border-[#00D98B] focus:ring-[#00D98B]/20"
               />
             </div>

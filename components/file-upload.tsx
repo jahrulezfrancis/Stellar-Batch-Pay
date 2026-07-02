@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { toast } from '@/components/ui/use-toast';
+import { toast } from '@/lib/toast';
 import { parsePaymentFile } from '@/lib/stellar/parser';
 import type { ParsedPaymentFile } from '@/lib/stellar/types';
 
@@ -30,7 +30,7 @@ export function FileUpload({ onFileSelect, onValidationResult, disabled }: FileU
         onValidationResult({
           rows: [{
             rowNumber: 1,
-            instruction: { address: '', amount: '', asset: '' },
+            instruction: { address: '', amount: '', asset: '', rowIndex: -1 },
             valid: false,
             error: err instanceof Error ? err.message : 'Failed to parse file',
           }],
@@ -47,7 +47,7 @@ export function FileUpload({ onFileSelect, onValidationResult, disabled }: FileU
 
     const ext = file.name.toLowerCase().split('.').pop();
     if (!['json', 'csv'].includes(ext || '')) {
-      toast({
+      toast.custom({
         title: "Invalid file type",
         description: "Please select a JSON or CSV file",
         variant: "destructive",
@@ -67,7 +67,7 @@ export function FileUpload({ onFileSelect, onValidationResult, disabled }: FileU
 
     const ext = file.name.toLowerCase().split('.').pop();
     if (!['json', 'csv'].includes(ext || '')) {
-      toast({
+      toast.custom({
         title: "Invalid file type",
         description: "Please select a JSON or CSV file",
         variant: "destructive",

@@ -37,6 +37,7 @@ function getDb(): Database.Database {
   _db = new Database(RATE_LIMIT_DB_PATH);
   _db.pragma("journal_mode = WAL");
   _db.pragma("foreign_keys = ON");
+  _db.pragma("busy_timeout = 5000");
 
   _db.exec(`
     CREATE TABLE IF NOT EXISTS rate_buckets (
@@ -193,17 +194,26 @@ export function applyRateLimit(request: NextRequest, endpoint: EndpointKey): {
   const key = `${endpoint}:${resolveIdentifier(request)}`;
 
   const db = getDb();
-  const row = db.prepare("SELECT * FROM rate_buckets WHERE key = ?").get(key) as RateBucketRow | undefined;
 
-  if (!row || now >= row.resetAt) {
-    const resetAtMs = now + policy.windowMs;
-    const remaining = limit - 1;
-    db.prepare(`
-      INSERT OR REPLACE INTO rate_buckets
-      (key, tier, endpoint, remaining, limit, resetAt, windowMs, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(key, tier, endpoint, remaining, limit, resetAtMs, policy.windowMs, new Date().toISOString());
+  // Wrap new-window initialization in a transaction so concurrent requests at
+  // window expiry can't both observe the expired row and each reset the counter.
+  const initResult = db.transaction(() => {
+    const row = db.prepare("SELECT * FROM rate_buckets WHERE key = ?").get(key) as RateBucketRow | undefined;
+    if (!row || now >= row.resetAt) {
+      const resetAtMs = now + policy.windowMs;
+      const remaining = limit - 1;
+      db.prepare(`
+        INSERT OR REPLACE INTO rate_buckets
+        (key, tier, endpoint, remaining, limit, resetAt, windowMs, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(key, tier, endpoint, remaining, limit, resetAtMs, policy.windowMs, new Date().toISOString());
+      return { newWindow: true, resetAtMs, remaining };
+    }
+    return { newWindow: false, row };
+  })();
 
+  if (initResult.newWindow) {
+    const { resetAtMs, remaining } = initResult as { newWindow: true; resetAtMs: number; remaining: number };
     return {
       blocked: false,
       remaining: Math.max(0, remaining),
@@ -212,6 +222,8 @@ export function applyRateLimit(request: NextRequest, endpoint: EndpointKey): {
       limit,
     };
   }
+
+  const row = (initResult as { newWindow: false; row: RateBucketRow }).row;
 
   if (row.remaining <= 0) {
     const retryAfterSec = Math.max(1, Math.ceil((row.resetAt - now) / 1000));

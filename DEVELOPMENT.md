@@ -11,7 +11,7 @@ The project follows a clean layered architecture with clear separation of concer
 ```
 ┌─────────────────────────────────────────────────────────┐
 │           UI Layer (Web & CLI)                          │
-│  (pages, components, cli/index.mjs)                     │
+│  (pages, components, cli/index.ts)                      │
 └─────────────────────────────────────────────────────────┘
                         ↓
 ┌─────────────────────────────────────────────────────────┐
@@ -76,6 +76,14 @@ Presets live in `lib/motion-tokens.ts`:
 Prefer spreading a preset onto `MotionSafe` instead of ad hoc `animate-in`
 utilities or raw `motion.div` on data-heavy routes. Utilitarian tables can
 omit entrance animation entirely.
+
+## Accessibility: bypass blocks
+
+Use a "Skip to main content" link as the first focusable control in layouts
+that introduce repeated navigation/UI chrome. The target landmark should be a
+stable `<main id="main-content">` on the rendered page shell (for example,
+dashboard and primary marketing/demo routes), so keyboard and assistive
+technology users can bypass sidebars/headers quickly (WCAG 2.4.1).
 
 ## Key Design Decisions
 
@@ -282,6 +290,37 @@ The contract uses Soroban's standard upgradeability pattern. Upgrades are gated 
 - `UpgradeProposed(new_wasm_hash, execute_at)`
 - `UpgradeExecuted(new_wasm_hash)`
 
+## React Query Provider
+
+A single `QueryClientProvider` wraps the entire application tree in the root
+`app/layout.tsx` via the `QueryProvider` component (`components/query-provider.tsx`).
+No other layout or page component should nest a second `QueryClientProvider` or
+create a separate `QueryClient` instance — nested providers create independent
+caches, breaking `invalidateQueries` across the app and causing duplicate network
+fetches for the same query key.
+
+- Default `staleTime` is 30 000 ms, retry count is 1, and `refetchOnWindowFocus`
+  is disabled (see `components/query-provider.tsx`).
+- Dashboard routes (wrapped by `DashboardLayout` in `components/dashboard-layout.tsx`)
+  rely on the root provider; do not reintroduce a second provider there.
+- All `useQuery`, `useMutation`, and `invalidateQueries` calls share the same
+  `QueryClient` instance and cache namespace.
+
+### Query keys
+
+Query keys come from the central factory in `lib/query-keys.ts` — do not write
+raw string-literal keys in hooks or components. The hierarchy is parent → child:
+
+- `batchHistoryKeys.all(publicKey)` → `["batch-history", publicKey]` (parent)
+- `batchHistoryKeys.list(publicKey, …filters)` → `["batch-history", publicKey, …filters]` (children: pagination/filter/sort)
+- `dashboardMetricsKeys.all(publicKey)` / `dashboardMetricsKeys.detail(publicKey, network, range)`
+
+TanStack Query matches partially by default (`exact: false`), so **invalidate via
+the `.all(publicKey)` parent** to refetch every paginated/filtered child list.
+Batch history and dashboard metrics are separate namespaces: when a batch
+completes, invalidate **both** parents (see `contexts/BatchFlowContext.tsx`) so the
+recent table, the history page, and the metric cards all refresh.
+
 ## Testing Strategy
 
 ### Unit Tests
@@ -317,16 +356,16 @@ const result = await service.submitBatch(payments);
 
 1. **CLI Testing**:
    ```bash
-   # The canonical CLI entry point is cli/index.mjs (the package.json bin target).
-   # Use `bun run cli` or the global `stellar-batch-pay` bin:
-   STELLAR_SECRET_KEY="..." bun run cli submit \
-     examples/payments.json \
-     --network testnet
+    # The canonical CLI entry point is cli/index.ts (the package.json bin target).
+    # Use `bun run cli` or the global `stellar-batch-pay` bin:
+    STELLAR_SECRET_KEY="..." bun run cli submit \
+      examples/payments.json \
+      --network testnet
 
-   # Alternatively invoke the bin directly:
-   STELLAR_SECRET_KEY="..." node cli/index.mjs submit \
-     examples/payments.json \
-     --network testnet
+    # Alternatively invoke the bin directly with bun:
+    STELLAR_SECRET_KEY="..." bun cli/index.ts submit \
+      examples/payments.json \
+      --network testnet
    ```
 
 2. **Web UI Testing**:
@@ -579,3 +618,9 @@ Batch is too large for single transaction:
 4. **Multi-language SDKs**: Python, Go, Rust versions
 5. **Scheduler**: Automated batch submissions at intervals
 6. **Analytics Dashboard**: Track batch history and metrics
+
+## Migration Notes
+
+### Legacy Idempotency Helpers Removed
+
+The legacy idempotency helpers `getJobIdByIdempotencyKey` and `storeIdempotencyKey` have been removed from `lib/job-store.ts` as they queried the outdated SQLite column `key` instead of the modern schema layout which supports request hashing and expiration. All new paths use `createIdempotentJob`.

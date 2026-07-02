@@ -8,9 +8,15 @@
  */
 
 import { StellarService } from "./server";
-import { updateJob, getJob, incrementCompletedBatches } from "../job-store";
+import { updateJob, getJob, incrementCompletedBatches, claimJobForProcessing } from "../job-store";
 import { createBatches } from "./batcher";
-import type { PaymentInstruction, BatchResult, PaymentResult } from "./types";
+import { getXdrSourceAccount, operationCountOf } from "./xdr-source";
+import type {
+  PaymentInstruction,
+  BatchResult,
+  PaymentResult,
+  BatchJobNetwork,
+} from "./types";
 import { Horizon, TransactionBuilder, Networks } from "stellar-sdk";
 import { sumStellarAmounts, formatStellarAmount } from "./utils";
 import { horizonUrl } from "./network-config";
@@ -26,7 +32,7 @@ import { triggerWebhooksWithRetry } from "../webhooks";
 export async function processJobInBackground(
   jobId: string,
   payments: PaymentInstruction[],
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   secretKey?: string,
   signedTransactions?: string[],
   requestId?: string,
@@ -39,9 +45,10 @@ export async function processJobInBackground(
       logger.warn({ requestId, jobId }, "Background worker: Job not found");
       return;
     }
-    // Reject second processJobInBackground if status is not queued or processing
-    if (job.status !== "queued" && job.status !== "processing") {
-      logger.warn({ requestId, jobId, status: job.status }, "Background worker: Job is already processed or completed. Exiting early.");
+    // Atomically claim the job. If claim fails, it means another worker is actively processing it or it is finished.
+    const claimed = claimJobForProcessing(jobId);
+    if (!claimed) {
+      logger.warn({ requestId, jobId, status: job.status }, "Background worker: Duplicate worker run detected. Job is already claimed, processing, or completed. Exiting early.");
       return;
     }
 
@@ -53,6 +60,13 @@ export async function processJobInBackground(
       if (job.signedTransactions && job.signedTransactions.length > 0) {
         xdrs = job.signedTransactions;
       }
+    }
+
+    // #515: If payments not provided or empty, try to recover from job state.
+    // This ensures that restart-recovered pre-signed jobs still have recipient
+    // metadata for history, retry, and export flows.
+    if ((!payments || payments.length === 0) && job.payments && job.payments.length > 0) {
+      payments = job.payments;
     }
 
     // Create server instance for fee fetching
@@ -69,6 +83,9 @@ export async function processJobInBackground(
       const allResults: PaymentResult[] = [];
       let successCount = 0;
       let failCount = 0;
+      // #512: track the real number of recipient operations across all XDRs so
+      // totals reflect actual ops, not a "1 per transaction" heuristic.
+      let totalOps = 0;
       const paymentsPerBatch = payments.length > 0 ? Math.min(MAX_OPS, payments.length) : 0;
 
       for (let i = 0; i < xdrs.length; i++) {
@@ -77,13 +94,57 @@ export async function processJobInBackground(
           ? payments.slice(i * paymentsPerBatch, Math.min((i + 1) * paymentsPerBatch, payments.length))
           : [];
 
+        // Parse the envelope once. Done outside the submit try/catch so an
+        // unparseable XDR is attributed as a single failed op rather than
+        // crashing the loop.
+        let tx;
         try {
-          const tx = TransactionBuilder.fromXDR(xdr, network === 'testnet' ? Networks.TESTNET : Networks.PUBLIC);
+          tx = TransactionBuilder.fromXDR(xdr, network === 'testnet' ? Networks.TESTNET : Networks.PUBLIC);
+        } catch (error) {
+          logger.error({ requestId, jobId, batchIndex: i }, "Failed to parse pre-signed XDR", error);
+          failCount += 1;
+          totalOps += 1;
+          allResults.push({
+            recipient: `tx-${i}`,
+            amount: "0",
+            asset: "XLM",
+            status: "failed",
+            error: error instanceof Error ? error.message : "Unparseable transaction XDR",
+          });
+          incrementCompletedBatches(jobId);
+          continue;
+        }
+
+        // #512: Attribute success/failure to the actual recipient operations.
+        // When payment metadata is provided we count one result per payment;
+        // otherwise (pure XDR submit, #300) we count the envelope's operations
+        // so empty `payments` no longer collapses a multi-op tx to a single
+        // success. Fall back to the payment slice (or 1) when the op count can
+        // not be derived — e.g. older SDK shapes or mocked transactions.
+        const opCount = operationCountOf(tx) ?? (batchPayments.length || 1);
+        const recipientCount = batchPayments.length > 0 ? batchPayments.length : opCount;
+        totalOps += recipientCount;
+
+        try {
+          // #504: Defense-in-depth — never submit an envelope whose source
+          // account differs from the wallet that owns this job. The submit
+          // route enforces this up-front, but a job recovered from storage is
+          // re-checked here. Skipped when the source can't be determined (older
+          // jobs without a publicKey, or unparseable XDR handled above).
+          if (job.publicKey) {
+            const source = getXdrSourceAccount(xdr, network);
+            if (source !== undefined && source !== job.publicKey) {
+              throw new Error(
+                `Transaction source account ${source} does not match job publicKey ${job.publicKey}`,
+              );
+            }
+          }
+
           const result = await server.submitTransaction(tx);
 
-          logger.info({ requestId, jobId, batchIndex: i, transactionHash: result.hash }, "Batch transaction submitted successfully (pre-signed mode)");
+          logger.info({ requestId, jobId, batchIndex: i, transactionHash: result.hash, operations: recipientCount }, "Batch transaction submitted successfully (pre-signed mode)");
 
-          successCount += batchPayments.length || 1;
+          successCount += recipientCount;
           if (batchPayments.length > 0) {
             for (const payment of batchPayments) {
               allResults.push({
@@ -95,17 +156,23 @@ export async function processJobInBackground(
               });
             }
           } else {
-            allResults.push({
-              recipient: `tx-${i}`,
-              amount: "0",
-              asset: "XLM",
-              status: "success",
-              transactionHash: result.hash,
-            });
+            for (let j = 0; j < recipientCount; j++) {
+              allResults.push({
+                recipient: `tx-${i}-op-${j}`,
+                amount: "0",
+                asset: "XLM",
+                status: "success",
+                transactionHash: result.hash,
+              });
+            }
           }
         } catch (error) {
           logger.error({ requestId, jobId, batchIndex: i }, "Batch transaction failed (pre-signed mode)", error);
 
+          // A Stellar transaction fails atomically, so every operation it
+          // carries is a failed recipient — keep failCount aligned with the
+          // op count, mirroring the success path.
+          failCount += recipientCount;
           if (batchPayments.length > 0) {
             for (const payment of batchPayments) {
               allResults.push({
@@ -115,17 +182,17 @@ export async function processJobInBackground(
                 status: "failed",
                 error: error instanceof Error ? error.message : "Unknown error",
               });
-              failCount++;
             }
           } else {
-            failCount++;
-            allResults.push({
-              recipient: `tx-${i}`,
-              amount: "0",
-              asset: "XLM",
-              status: "failed",
-              error: error instanceof Error ? error.message : "Unknown error",
-            });
+            for (let j = 0; j < recipientCount; j++) {
+              allResults.push({
+                recipient: `tx-${i}-op-${j}`,
+                amount: "0",
+                asset: "XLM",
+                status: "failed",
+                error: error instanceof Error ? error.message : "Unknown error",
+              });
+            }
           }
         }
 
@@ -135,7 +202,8 @@ export async function processJobInBackground(
       const finalStatus = successCount > 0 ? "completed" : "failed";
       const finalResult = {
         batchId: `batch-${Date.now()}`,
-        totalRecipients: payments.length > 0 ? payments.length : xdrs.length,
+        // #512: when no payment metadata is supplied, recipients = real ops.
+        totalRecipients: payments.length > 0 ? payments.length : totalOps,
         totalAmount: payments.length > 0
           ? formatStellarAmount(sumStellarAmounts(payments.map(p => p.amount)))
           : "0",
@@ -155,6 +223,22 @@ export async function processJobInBackground(
       });
 
       logger.info({ requestId, jobId, status: finalStatus, summary: finalResult.summary }, "Background job processing finished (pre-signed mode)");
+
+      if (finalStatus === "completed") {
+        void triggerWebhooksWithRetry("batch.completed", {
+          jobId,
+          network,
+          batchId: finalResult.batchId,
+          summary: finalResult.summary,
+        }, jobId);
+      } else {
+        void triggerWebhooksWithRetry("batch.failed", {
+          jobId,
+          network,
+          batchId: finalResult.batchId,
+          summary: finalResult.summary,
+        }, jobId);
+      }
       return;
     }
 
@@ -187,8 +271,11 @@ export async function processJobInBackground(
       const batch = batches[i];
 
       try {
-        // Submit this single batch of ≤100 payments as one Stellar transaction
-        const batchResult = await service.submitBatch(batch.payments);
+        // Submit this pre-computed batch as exactly one Stellar transaction.
+        // Must NOT call submitBatch here — that would re-run createBatches and
+        // double-batch the payments, inflating fees and desyncing progress with
+        // totalBatches (#503).
+        const batchResult = await service.submitSingleBatch(batch.payments);
 
         let txHash: string | undefined;
         for (const r of batchResult.results) {
@@ -244,6 +331,22 @@ export async function processJobInBackground(
     });
 
     logger.info({ requestId, jobId, status: finalStatus, summary: finalResult.summary }, "Background job processing finished (server-signed mode)");
+
+    if (finalStatus === "completed") {
+      void triggerWebhooksWithRetry("batch.completed", {
+        jobId,
+        network,
+        batchId: finalResult.batchId,
+        summary: finalResult.summary,
+      }, jobId);
+    } else {
+      void triggerWebhooksWithRetry("batch.failed", {
+        jobId,
+        network,
+        batchId: finalResult.batchId,
+        summary: finalResult.summary,
+      }, jobId);
+    }
   } catch (error) {
     logger.error({ requestId, jobId }, "Background worker encountered error", error);
     updateJob(jobId, {

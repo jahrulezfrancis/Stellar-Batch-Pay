@@ -22,7 +22,7 @@ export const metadata = makePageMetadata(
 
 export default function LandingPage() {
   return (
-    <main className="min-h-screen bg-background text-foreground flex flex-col">
+    <main id="main-content" className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar />
       <Hero />
       <ProcessSection />

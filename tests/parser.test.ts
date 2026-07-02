@@ -9,10 +9,29 @@ import {
   parseInput,
   parseJSON,
   parsePaymentFile,
+  parseFileStream,
 } from '../lib/stellar/parser';
 
 const validAddress = Keypair.random().publicKey();
 const invalidChecksumAddress = `${validAddress.slice(0, -1)}${validAddress.endsWith('A') ? 'B' : 'A'}`;
+
+class FakeFileReaderSync {
+  readAsText(blob: any, encoding?: string): string {
+    return blob._testContent || '';
+  }
+}
+if (typeof globalThis !== 'undefined' && !(globalThis as any).FileReaderSync) {
+  (globalThis as any).FileReaderSync = FakeFileReaderSync;
+
+  const originalSlice = Blob.prototype.slice;
+  Blob.prototype.slice = function(this: any, start?: number, end?: number, contentType?: string) {
+    const sliced = originalSlice.call(this, start, end, contentType) as any;
+    if (this._testContent !== undefined) {
+      sliced._testContent = this._testContent.slice(start, end);
+    }
+    return sliced;
+  };
+}
 
 describe('JSON Parser', () => {
   test('parses valid JSON array', () => {
@@ -226,5 +245,80 @@ ${invalidChecksumAddress},25,XLM
     expect(result.rows[1].rowNumber).toBe(3);
     expect(result.rows[1].error).toContain('checksum');
     expect(result.rows[2].error).toContain('address');
+  });
+});
+
+describe('parseFileStream', () => {
+  test('attaches correct rowIndex to streamed valid payment instructions', () => {
+    const csvContent = `address,amount,asset
+${validAddress},100,XLM
+${validAddress},200,XLM`;
+
+    const file = new File([csvContent], 'test.csv', { type: 'text/csv' }) as any;
+    file._testContent = csvContent;
+
+    return new Promise<void>((resolve, reject) => {
+      parseFileStream(file, {
+        onComplete: (result) => {
+          try {
+            expect(result.payments).toHaveLength(2);
+            expect(result.errors).toHaveLength(0);
+            
+            // Check that rowIndex is correct (0-based)
+            expect(result.payments[0].rowIndex).toBe(0);
+            expect(result.payments[0].amount).toBe('100');
+            expect(result.payments[1].rowIndex).toBe(1);
+            expect(result.payments[1].amount).toBe('200');
+            
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        },
+        onError: (err) => {
+          reject(err);
+        },
+      });
+    });
+  });
+
+  test('reports errors with absolute row indices starting at 2 (parity with parsePaymentFile)', () => {
+    const csvContent = `address,amount,asset
+${validAddress},100,XLM
+${invalidChecksumAddress},50,XLM
+${validAddress},200,XLM`;
+
+    const file = new File([csvContent], 'test.csv', { type: 'text/csv' }) as any;
+    file._testContent = csvContent;
+
+    return new Promise<void>((resolve, reject) => {
+      parseFileStream(file, {
+        onComplete: (result) => {
+          try {
+            expect(result.payments).toHaveLength(2);
+            expect(result.errors).toHaveLength(1);
+            
+            // First valid payment
+            expect(result.payments[0].rowIndex).toBe(0);
+            expect(result.payments[0].amount).toBe('100');
+            
+            // Second valid payment (originally row 3 of data, index 2)
+            expect(result.payments[1].rowIndex).toBe(2);
+            expect(result.payments[1].amount).toBe('200');
+            
+            // Validation error on row 3 (data index 1, absolute row 3)
+            expect(result.errors[0].row).toBe(3);
+            expect(result.errors[0].message).toContain('Row 3');
+            
+            resolve();
+          } catch (e) {
+            reject(e);
+          }
+        },
+        onError: (err) => {
+          reject(err);
+        },
+      });
+    });
   });
 });

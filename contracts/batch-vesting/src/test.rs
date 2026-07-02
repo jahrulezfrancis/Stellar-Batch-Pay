@@ -51,6 +51,17 @@ fn matching_memos(env: &Env, len: u32) -> Vec<String> {
     memos
 }
 
+fn setup_contract(env: &Env, client: &BatchVestingContractClient) {
+    let admin = Address::generate(env);
+    client.set_admin(&admin);
+    client.set_config(&admin, &Config {
+        max_batch_size: 100,
+        max_schedules_per_recipient: 10,
+        upgrade_timelock: 7 * 24 * 60 * 60,
+        fee_asset: Address::generate(env),
+    });
+}
+
 #[test]
 fn test_version() {
     let env = Env::default();
@@ -66,6 +77,7 @@ fn test_deposit_and_claim() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient1 = Address::generate(&env);
@@ -119,6 +131,7 @@ fn test_revoke_by_sender() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -165,6 +178,7 @@ fn test_claim_after_revoke_fails() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -218,6 +232,12 @@ fn test_revoke_by_admin_fails() {
     token_admin_client.mint(&sender, &1000);
 
     client.set_admin(&admin);
+    client.set_config(&admin, &Config {
+        max_batch_size: 100,
+        max_schedules_per_recipient: 10,
+        upgrade_timelock: 7 * 24 * 60 * 60,
+        fee_asset: Address::generate(&env),
+    });
 
     let recipients = Vec::from_array(&env, [recipient.clone()]);
     let amounts = Vec::from_array(&env, [100]);
@@ -256,6 +276,7 @@ fn test_revoke_unauthorized() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -300,6 +321,7 @@ fn test_revoke_already_vested() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -344,6 +366,7 @@ fn test_claim_too_early() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient1 = Address::generate(&env);
@@ -446,6 +469,7 @@ fn test_deposit_rejects_oversized_batch() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let token_admin = Address::generate(&env);
@@ -482,6 +506,7 @@ fn test_events_emission() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient1 = Address::generate(&env);
@@ -596,6 +621,7 @@ fn test_multiple_vestings_different_unlocks() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -668,6 +694,7 @@ fn test_batch_revoke_by_sender() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient1 = Address::generate(&env);
@@ -747,6 +774,12 @@ fn test_batch_revoke_by_admin_fails() {
     token_admin_client.mint(&sender, &1000);
 
     client.set_admin(&admin);
+    client.set_config(&admin, &Config {
+        max_batch_size: 100,
+        max_schedules_per_recipient: 10,
+        upgrade_timelock: 7 * 24 * 60 * 60,
+        fee_asset: Address::generate(&env),
+    });
 
     let recipients = Vec::from_array(&env, [recipient1.clone(), recipient2.clone()]);
     let amounts = Vec::from_array(&env, [150, 250]);
@@ -814,6 +847,12 @@ fn test_batch_revoke_multiple_senders_fails_for_admin() {
     token_admin_client.mint(&sender2, &1000);
 
     client.set_admin(&admin);
+    client.set_config(&admin, &Config {
+        max_batch_size: 100,
+        max_schedules_per_recipient: 10,
+        upgrade_timelock: 7 * 24 * 60 * 60,
+        fee_asset: Address::generate(&env),
+    });
 
     let unlock_time = 1000;
 
@@ -887,6 +926,7 @@ fn test_batch_revoke_unauthorized() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient1 = Address::generate(&env);
@@ -957,6 +997,7 @@ fn test_batch_revoke_already_vested() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient1 = Address::generate(&env);
@@ -1026,6 +1067,7 @@ fn test_batch_revoke_no_vesting() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient1 = Address::generate(&env);
@@ -1069,6 +1111,7 @@ fn test_batch_revoke_events_emission() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient1 = Address::generate(&env);
@@ -1129,7 +1172,7 @@ fn test_batch_revoke_events_emission() {
             if topic == revoke_symbol {
                 let evt_recipient: Address = topics.get(1).unwrap().into_val(&env);
                 let evt_sender: Address = topics.get(2).unwrap().into_val(&env);
-                let (evt_amount, evt_pending, evt_token, _evt_memo): (i128, i128, Address, String) = data.into_val(&env);
+                let (evt_amount, evt_pending, evt_token, _evt_memo, _evt_batch_id): (i128, i128, Address, String, u32) = data.into_val(&env);
                 assert_eq!(evt_sender, sender);
                 // At t=500, unlock=1000, 0% is vested (cliff), 100% revoked
                 assert_eq!(evt_token, token.address);
@@ -1158,6 +1201,7 @@ fn test_batch_revoke_partial_recipients() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient1 = Address::generate(&env);
@@ -1227,6 +1271,7 @@ fn test_batch_revoke_rejects_oversized_batch() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let token_admin = Address::generate(&env);
@@ -1252,6 +1297,7 @@ fn test_batch_revoke_partial_success() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let attacker = Address::generate(&env);
@@ -1375,6 +1421,7 @@ fn test_batch_revoke_mixed_valid_and_invalid() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient_valid1 = Address::generate(&env);
@@ -1506,6 +1553,7 @@ fn test_claim_multi_token() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1568,6 +1616,7 @@ fn test_deposit_schedule_limit_exceeded() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1623,6 +1672,7 @@ fn test_batch_revoke_multiple_schedules_same_recipient() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1678,14 +1728,13 @@ fn test_batch_revoke_multiple_schedules_same_recipient() {
         li.timestamp = 500; // all three are still locked
     });
 
-    // Revoke all three in one batch call — higher indices must be processed first
-    // internally to avoid swap-remove corruption.
+    // Revoke all three in descending index order (required by the contract).
     let revoke_requests = Vec::from_array(
         &env,
         [
             RevokeRequest {
                 recipient: recipient.clone(),
-                index: 0,
+                index: 2,
             },
             RevokeRequest {
                 recipient: recipient.clone(),
@@ -1693,7 +1742,7 @@ fn test_batch_revoke_multiple_schedules_same_recipient() {
             },
             RevokeRequest {
                 recipient: recipient.clone(),
-                index: 2,
+                index: 0,
             },
         ],
     );
@@ -1734,11 +1783,12 @@ fn test_lazy_migration() {
     let token_admin = Address::generate(&env); let (token_client, _) = create_token_contract(&env, &token_admin); let token = token_client.address;
     (TokenAdminClient::new(&env, &token)).mint(&sender, &i128::MAX);
 
-    // Manually inject older Vec<VestingData> storage using Env's as_contract
+    // Manually inject legacy Vec<LegacyVestingData> storage to simulate pre-migration data.
+    // LegacyVestingData lacks cliff_time — migrate_if_needed must handle the field layout.
     let old_data = Vec::from_array(
         &env,
         [
-            VestingData {
+            LegacyVestingData {
                 total_amount: 100,
                 released_amount: 0,
                 start_time: 0,
@@ -1749,7 +1799,7 @@ fn test_lazy_migration() {
                 vesting_step: 0,
                 memo: String::from_str(&env, ""),
             },
-            VestingData {
+            LegacyVestingData {
                 total_amount: 200,
                 released_amount: 0,
                 start_time: 0,
@@ -1800,6 +1850,7 @@ fn test_get_vestings_pagination() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1874,6 +1925,7 @@ fn test_deposit_event_includes_token_address() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1913,6 +1965,7 @@ fn test_claim_event_includes_token_address() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1950,6 +2003,7 @@ fn test_revoke_event_includes_token_address() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -1975,7 +2029,7 @@ fn test_revoke_event_includes_token_address() {
     env.ledger().with_mut(|li| li.timestamp = 500);
     client.revoke(&sender, &recipient, &0);
 
-    let payload: (i128, i128, Address, String) = find_event_data(&env, "VestingRevoked");
+    let payload: (i128, i128, Address, String, u32) = find_event_data(&env, "VestingRevoked");
     assert_eq!(payload.0, 100i128, "revoked_amount mismatch");
     assert_eq!(payload.1, 0i128, "pending_vested mismatch");
     assert_eq!(payload.2, token.address, "token address missing from revoke event");
@@ -1989,6 +2043,7 @@ fn test_deposit_overflow() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient1 = Address::generate(&env);
@@ -2025,6 +2080,7 @@ fn test_get_vestings_pagination_overflow() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -2044,7 +2100,7 @@ fn test_get_vestings_pagination_overflow() {
         &Vec::from_array(&env, [100]),
         &1000,
         &2000,
-        &0,
+        &1000, // cliff_time must be >= start_time
         &0,
         &Vec::from_array(&env, [String::from_str(&env, "")])
     );
@@ -2061,6 +2117,7 @@ fn test_ttl_bumping() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -2076,7 +2133,7 @@ fn test_ttl_bumping() {
         &Vec::from_array(&env, [1000]),
         &1000,
         &2000,
-        &0,
+        &1000, // cliff_time must be >= start_time
         &0,
         &Vec::from_array(&env, [String::from_str(&env, "")])
     );
@@ -2102,10 +2159,12 @@ fn test_set_config() {
     let admin = Address::generate(&env);
     client.set_admin(&admin);
 
+    let fee_token = Address::generate(&env);
     let new_config = Config {
         max_batch_size: 50,
         max_schedules_per_recipient: 5,
         upgrade_timelock: 100,
+        fee_asset: fee_token.clone(),
     };
 
     client.set_config(&admin, &new_config);
@@ -2116,8 +2175,11 @@ fn test_set_config() {
     let event_topics = last_event.1;
     let topic: Symbol = event_topics.get(0).unwrap().try_into_val(&env).unwrap();
     assert_eq!(topic, Symbol::new(&env, "ConfigUpdated"));
-    let event_data: (u32, u32, u64) = last_event.2.try_into_val(&env).unwrap();
-    assert_eq!(event_data, (50u32, 5u32, 100u64));
+    let event_data: (u32, u32, u64, Address) = last_event.2.try_into_val(&env).unwrap();
+    assert_eq!(event_data.0, 50u32);
+    assert_eq!(event_data.1, 5u32);
+    assert_eq!(event_data.2, 100u64);
+    assert_eq!(event_data.3, fee_token);
 }
 
 #[test]
@@ -2136,6 +2198,7 @@ fn test_config_enforcement() {
         max_batch_size: 2,
         max_schedules_per_recipient: 10,
         upgrade_timelock: 100,
+        fee_asset: Address::generate(&env),
     });
 
     let sender = Address::generate(&env);
@@ -2220,6 +2283,7 @@ fn test_batch_revoke_out_of_order_indices() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -2248,16 +2312,15 @@ fn test_batch_revoke_out_of_order_indices() {
 
     env.ledger().with_mut(|li| li.timestamp = 500);
 
-    // Submit requests in ascending index order [0, 1, 2]; the optimised sort
-    // must reorder them to [2, 1, 0] internally for safe execution.
+    // Submit requests in descending index order [2, 1, 0] as required by the contract.
     let results = client.batch_revoke(
         &sender,
         &Vec::from_array(
             &env,
             [
-                RevokeRequest { recipient: recipient.clone(), index: 0 },
-                RevokeRequest { recipient: recipient.clone(), index: 1 },
                 RevokeRequest { recipient: recipient.clone(), index: 2 },
+                RevokeRequest { recipient: recipient.clone(), index: 1 },
+                RevokeRequest { recipient: recipient.clone(), index: 0 },
             ],
         ),
     );
@@ -2279,6 +2342,7 @@ fn test_step_based_vesting() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -2302,8 +2366,8 @@ fn test_step_based_vesting() {
         &amounts,
         &start_time,
         &end_time,
-        &vesting_step,
         &0,
+        &vesting_step,
         &Vec::from_array(&env, [String::from_str(&env, "step test")])
     );
 
@@ -2339,6 +2403,7 @@ fn test_invalid_vesting_step_divisibility() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipients = Vec::from_array(&env, [Address::generate(&env)]);
@@ -2351,8 +2416,8 @@ fn test_invalid_vesting_step_divisibility() {
         &amounts,
         &0,
         &1000,
-        &300, // 1000 is not divisible by 300
         &0,
+        &300, // 1000 is not divisible by 300
         &Vec::from_array(&env, [String::from_str(&env, "")])
     );
 }
@@ -2367,6 +2432,12 @@ fn test_upgrade_flow() {
 
     let admin = Address::generate(&env);
     client.set_admin(&admin);
+    client.set_config(&admin, &Config {
+        max_batch_size: 100,
+        max_schedules_per_recipient: 10,
+        upgrade_timelock: 7 * 24 * 60 * 60,
+        fee_asset: Address::generate(&env),
+    });
 
     let new_wasm_hash = BytesN::from_array(&env, &[1u8; 32]);
     
@@ -2401,6 +2472,12 @@ fn test_execute_upgrade_timelock_panic() {
     let client = BatchVestingContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     client.set_admin(&admin);
+    client.set_config(&admin, &Config {
+        max_batch_size: 100,
+        max_schedules_per_recipient: 10,
+        upgrade_timelock: 7 * 24 * 60 * 60,
+        fee_asset: Address::generate(&env),
+    });
     let new_wasm_hash = BytesN::from_array(&env, &[1u8; 32]);
     env.ledger().with_mut(|li| li.timestamp = 100);
     client.propose_upgrade(&admin, &new_wasm_hash);
@@ -2417,6 +2494,7 @@ fn test_partial_claim_keeps_schedule_active() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -2462,6 +2540,7 @@ fn test_partial_claim_capped_at_claimable() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -2497,6 +2576,7 @@ fn test_partial_claim_before_unlock_fails() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -2529,6 +2609,7 @@ fn test_partial_claim_zero_amount_fails() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -2564,6 +2645,7 @@ fn test_claim_all_checked_add_no_overflow() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -2604,6 +2686,7 @@ fn test_calculate_vested_amount_max_i128_no_overflow() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender    = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -2627,6 +2710,7 @@ fn test_calculate_vested_amount_max_i128_no_overflow() {
         &Vec::from_array(&env, [large_amount]),
         &start_time,
         &end_time,
+        &0u64,
         &step,
         &Vec::from_array(&env, [String::from_str(&env, "")]),
     );
@@ -2650,22 +2734,19 @@ fn test_calculate_vested_amount_overflow_returns_error() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender    = Address::generate(&env);
     let recipient = Address::generate(&env);
     let (token, token_admin) = create_token_contract(&env, &Address::generate(&env));
 
-    // Use i64::MAX so the token contract accepts the mint, but the
-    // intermediate product total * current_step will overflow i128 when
-    // current_step is also near i64::MAX.
-    let total: i128 = i64::MAX as i128;
+    // total = i128::MAX; with step=1 and duration=3, num_steps=3.
+    // At elapsed=2: current_step=2, numerator = i128::MAX * 2 → overflows i128 → Overflow(#13).
+    let total: i128 = i128::MAX;
     token_admin.mint(&sender, &total);
 
-    // step = 1 (continuous), duration = i64::MAX seconds
-    // At elapsed = i64::MAX - 1, current_step = i64::MAX - 1
-    // total * current_step ≈ (i64::MAX)² >> i128::MAX → overflow
     let start_time: u64 = 0;
-    let end_time:   u64 = u64::MAX / 2; // large duration
+    let end_time:   u64 = 3;
     let step:       u64 = 1;
 
     env.ledger().with_mut(|li| li.timestamp = start_time);
@@ -2676,13 +2757,13 @@ fn test_calculate_vested_amount_overflow_returns_error() {
         &Vec::from_array(&env, [total]),
         &start_time,
         &end_time,
+        &0u64,
         &step,
         &Vec::from_array(&env, [String::from_str(&env, "")]),
     );
 
-    // Advance to a point where total * elapsed overflows i128
-    env.ledger().with_mut(|li| li.timestamp = (i64::MAX - 1) as u64);
-    // This claim must trigger VestingError::Overflow (#13)
+    // At elapsed=2, current_step=2 < num_steps=3: total * 2 overflows i128.
+    env.ledger().with_mut(|li| li.timestamp = 2);
     client.claim(&recipient, &0, &1);
 }
 
@@ -2698,6 +2779,7 @@ fn test_batch_revoke_unsorted_input_rejected() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender    = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -2715,6 +2797,7 @@ fn test_batch_revoke_unsorted_input_rejected() {
             &Vec::from_array(&env, [100i128]),
             &0,
             &1000,
+            &0,
             &0,
             &Vec::from_array(&env, [String::from_str(&env, "")]),
         );
@@ -2738,6 +2821,7 @@ fn test_batch_revoke_sorted_input_succeeds() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender    = Address::generate(&env);
     let recipient = Address::generate(&env);
@@ -2755,6 +2839,7 @@ fn test_batch_revoke_sorted_input_succeeds() {
             &Vec::from_array(&env, [100i128]),
             &0,
             &1000,
+            &0,
             &0,
             &Vec::from_array(&env, [String::from_str(&env, "")]),
         );
@@ -2784,6 +2869,7 @@ fn test_batch_revoke_different_recipients_any_order() {
 
     let contract_id = env.register_contract(None, BatchVestingContract);
     let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
 
     let sender     = Address::generate(&env);
     let recipient1 = Address::generate(&env);
@@ -2801,6 +2887,7 @@ fn test_batch_revoke_different_recipients_any_order() {
         &0,
         &1000,
         &0,
+        &0,
         &Vec::from_array(&env, [
             String::from_str(&env, ""),
             String::from_str(&env, ""),
@@ -2817,4 +2904,384 @@ fn test_batch_revoke_different_recipients_any_order() {
     let results = client.batch_revoke(&sender, &requests);
     assert_eq!(results.get(0).unwrap(), true);
     assert_eq!(results.get(1).unwrap(), true);
+}
+
+// ── #505: interleaved same-recipient index ordering ───────────────────────────
+
+/// Interleaved same-recipient requests that are not globally descending must be
+/// rejected, even when the out-of-order pair is separated by another recipient
+/// (so the old consecutive-only check would have let it through). Sequence for
+/// recipient R is 2, 0, 1 — the trailing 1 ascends past the previous 0. (#505)
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #18)")]
+fn test_batch_revoke_interleaved_indices() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
+
+    let sender    = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let other     = Address::generate(&env);
+    let (token, token_admin) = create_token_contract(&env, &Address::generate(&env));
+    token_admin.mint(&sender, &400);
+
+    env.ledger().with_mut(|li| li.timestamp = 0);
+
+    // 3 schedules for recipient R (indices 0, 1, 2)
+    for _ in 0..3 {
+        client.deposit(
+            &sender,
+            &Vec::from_array(&env, [token.address.clone()]),
+            &Vec::from_array(&env, [recipient.clone()]),
+            &Vec::from_array(&env, [100i128]),
+            &0,
+            &1000,
+            &0,
+            &0,
+            &Vec::from_array(&env, [String::from_str(&env, "")]),
+        );
+    }
+    // 1 schedule for the interleaving recipient
+    client.deposit(
+        &sender,
+        &Vec::from_array(&env, [token.address.clone()]),
+        &Vec::from_array(&env, [other.clone()]),
+        &Vec::from_array(&env, [100i128]),
+        &0,
+        &1000,
+        &0,
+        &0,
+        &Vec::from_array(&env, [String::from_str(&env, "")]),
+    );
+
+    // R sequence is 2, 0, 1 — globally NOT descending. The (R,0) and (R,1)
+    // entries are non-adjacent (separated by `other`), so a consecutive-only
+    // validator misses it. Must be rejected with InvalidInput (#18).
+    let requests = Vec::from_array(&env, [
+        RevokeRequest { recipient: recipient.clone(), index: 2 },
+        RevokeRequest { recipient: recipient.clone(), index: 0 },
+        RevokeRequest { recipient: other.clone(),     index: 0 },
+        RevokeRequest { recipient: recipient.clone(), index: 1 },
+    ]);
+
+    client.batch_revoke(&sender, &requests);
+}
+
+/// A genuinely descending per-recipient batch that happens to be interleaved
+/// with another recipient must still succeed. R sequence is 2, 1, 0. (#505)
+#[test]
+fn test_batch_revoke_interleaved_descending_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+    setup_contract(&env, &client);
+
+    let sender    = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let other     = Address::generate(&env);
+    let (token, token_admin) = create_token_contract(&env, &Address::generate(&env));
+    token_admin.mint(&sender, &400);
+
+    env.ledger().with_mut(|li| li.timestamp = 0);
+
+    for _ in 0..3 {
+        client.deposit(
+            &sender,
+            &Vec::from_array(&env, [token.address.clone()]),
+            &Vec::from_array(&env, [recipient.clone()]),
+            &Vec::from_array(&env, [100i128]),
+            &0,
+            &1000,
+            &0,
+            &0,
+            &Vec::from_array(&env, [String::from_str(&env, "")]),
+        );
+    }
+    client.deposit(
+        &sender,
+        &Vec::from_array(&env, [token.address.clone()]),
+        &Vec::from_array(&env, [other.clone()]),
+        &Vec::from_array(&env, [100i128]),
+        &0,
+        &1000,
+        &0,
+        &0,
+        &Vec::from_array(&env, [String::from_str(&env, "")]),
+    );
+
+    // R sequence 2, 1, 0 (descending) interleaved with `other` — must succeed.
+    let requests = Vec::from_array(&env, [
+        RevokeRequest { recipient: recipient.clone(), index: 2 },
+        RevokeRequest { recipient: other.clone(),     index: 0 },
+        RevokeRequest { recipient: recipient.clone(), index: 1 },
+        RevokeRequest { recipient: recipient.clone(), index: 0 },
+    ]);
+
+    let results = client.batch_revoke(&sender, &requests);
+    assert_eq!(results.get(0).unwrap(), true);
+    assert_eq!(results.get(1).unwrap(), true);
+    assert_eq!(results.get(2).unwrap(), true);
+    assert_eq!(results.get(3).unwrap(), true);
+}
+
+// ── #543: Fee asset whitelist tests ───────────────────────────────────────────
+
+/// Verify that set_fee_config no longer accepts fee_asset as a parameter.
+/// The fee asset is now controlled by the contract config, not fee_config.
+#[test]
+fn test_set_fee_config_uses_whitelisted_asset_from_config() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    // Create two different token contracts
+    let (token_a, token_admin_a) = create_token_contract(&env, &Address::generate(&env));
+    let (token_b, token_admin_b) = create_token_contract(&env, &Address::generate(&env));
+
+    // Set admin
+    client.set_admin(&admin);
+
+    // Initialize config with token_a as the whitelisted fee asset
+    let config = Config {
+        max_batch_size: 100,
+        max_schedules_per_recipient: 10,
+        upgrade_timelock: 7 * 24 * 60 * 60,
+        fee_asset: token_a.address.clone(),
+    };
+    client.set_config(&admin, &config);
+
+    // Set fee config (no fee_asset parameter anymore)
+    client.set_fee_config(&admin, &100, &treasury);
+
+    // Mint tokens for fee payment
+    token_admin_a.mint(&sender, &1000);
+    token_admin_b.mint(&sender, &1000);
+
+    env.ledger().with_mut(|li| li.timestamp = 0);
+
+    // Deposit should succeed and collect fees in token_a (the whitelisted asset)
+    client.deposit(
+        &sender,
+        &Vec::from_array(&env, [token_a.address.clone()]),
+        &Vec::from_array(&env, [recipient.clone()]),
+        &Vec::from_array(&env, [100i128]),
+        &0,
+        &1000,
+        &0,
+        &0,
+        &Vec::from_array(&env, [String::from_str(&env, "")]),
+    );
+
+    // Verify fees were collected in token_a (whitelisted), not token_b
+    assert_eq!(token_a.balance(&treasury), 100); // 1 recipient * 100 fee
+    assert_eq!(token_a.balance(&sender), 800); // 1000 - 100 deposited - 100 fee
+    assert_eq!(token_b.balance(&treasury), 0); // No fees in token_b
+}
+
+/// Verify that deposit fails if sender doesn't have the whitelisted fee asset.
+#[test]
+#[should_panic]
+fn test_deposit_fails_without_whitelisted_fee_asset() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let (token_a, token_admin_a) = create_token_contract(&env, &Address::generate(&env));
+    let (token_b, token_admin_b) = create_token_contract(&env, &Address::generate(&env));
+
+    // Set admin and config with token_a as fee asset
+    client.set_admin(&admin);
+    let config = Config {
+        max_batch_size: 100,
+        max_schedules_per_recipient: 10,
+        upgrade_timelock: 7 * 24 * 60 * 60,
+        fee_asset: token_a.address.clone(),
+    };
+    client.set_config(&admin, &config);
+
+    // Set fee config
+    client.set_fee_config(&admin, &100, &Address::generate(&env));
+
+    // Mint only token_b to sender (not the whitelisted token_a)
+    token_admin_a.mint(&sender, &0); // No token_a
+    token_admin_b.mint(&sender, &1000); // Only token_b
+
+    env.ledger().with_mut(|li| li.timestamp = 0);
+
+    // Deposit with token_b should fail because fees require token_a
+    client.deposit(
+        &sender,
+        &Vec::from_array(&env, [token_b.address.clone()]),
+        &Vec::from_array(&env, [recipient.clone()]),
+        &Vec::from_array(&env, [100i128]),
+        &0,
+        &1000,
+        &0,
+        &0,
+        &Vec::from_array(&env, [String::from_str(&env, "")]),
+    );
+}
+
+/// Verify that fees are always collected in the whitelisted asset,
+/// regardless of which token is used for the vesting deposit.
+#[test]
+fn test_fees_collected_in_whitelisted_asset_not_deposit_token() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    let (token_xlm, token_admin_xlm) = create_token_contract(&env, &Address::generate(&env));
+    let (token_usdc, token_admin_usdc) = create_token_contract(&env, &Address::generate(&env));
+
+    // Set admin and config with XLM as fee asset
+    client.set_admin(&admin);
+    let config = Config {
+        max_batch_size: 100,
+        max_schedules_per_recipient: 10,
+        upgrade_timelock: 7 * 24 * 60 * 60,
+        fee_asset: token_xlm.address.clone(), // XLM is whitelisted
+    };
+    client.set_config(&admin, &config);
+
+    // Set fee config: 50 XLM per recipient
+    client.set_fee_config(&admin, &50, &treasury);
+
+    // Mint both tokens to sender
+    token_admin_xlm.mint(&sender, &1000);
+    token_admin_usdc.mint(&sender, &1000);
+
+    env.ledger().with_mut(|li| li.timestamp = 0);
+
+    // Deposit using USDC (not the fee asset)
+    client.deposit(
+        &sender,
+        &Vec::from_array(&env, [token_usdc.address.clone()]),
+        &Vec::from_array(&env, [recipient.clone()]),
+        &Vec::from_array(&env, [200i128]),
+        &0,
+        &1000,
+        &0,
+        &0,
+        &Vec::from_array(&env, [String::from_str(&env, "")]),
+    );
+
+    // Verify: fees collected in XLM (whitelisted), not USDC (deposit token)
+    assert_eq!(token_xlm.balance(&treasury), 50); // Fee in XLM
+    assert_eq!(token_xlm.balance(&sender), 950); // 1000 - 50 fee
+    assert_eq!(token_usdc.balance(&sender), 800); // 1000 - 200 deposited
+    assert_eq!(token_usdc.balance(&treasury), 0); // No USDC fees
+}
+
+/// Verify that FeeConfigUpdated event includes the whitelisted fee asset from config.
+#[test]
+fn test_fee_config_event_includes_whitelisted_asset() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let (token_xlm, _) = create_token_contract(&env, &Address::generate(&env));
+    let treasury = Address::generate(&env);
+
+    // Set admin and config
+    client.set_admin(&admin);
+    let config = Config {
+        max_batch_size: 100,
+        max_schedules_per_recipient: 10,
+        upgrade_timelock: 7 * 24 * 60 * 60,
+        fee_asset: token_xlm.address.clone(),
+    };
+    client.set_config(&admin, &config);
+
+    // Set fee config
+    client.set_fee_config(&admin, &75, &treasury);
+
+    // Verify FeeConfigUpdated event contains the whitelisted fee asset
+    let events = env.events().all();
+    let fee_config_event = events.get(events.len() - 1).unwrap();
+    let event_topics = fee_config_event.1;
+    let topic: Symbol = event_topics.get(0).unwrap().try_into_val(&env).unwrap();
+    assert_eq!(topic, Symbol::new(&env, "FeeConfigUpdated"));
+
+    let event_data: (i128, Address, Address) = fee_config_event.2.try_into_val(&env).unwrap();
+    assert_eq!(event_data.0, 75i128); // fee_per_recipient
+    assert_eq!(event_data.1, treasury); // treasury
+    assert_eq!(event_data.2, token_xlm.address); // whitelisted fee_asset from config
+}
+
+/// Verify that zero fees work correctly with the whitelist system.
+#[test]
+fn test_zero_fees_with_whitelisted_asset() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, BatchVestingContract);
+    let client = BatchVestingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let (token, token_admin) = create_token_contract(&env, &Address::generate(&env));
+
+    // Set admin and config
+    client.set_admin(&admin);
+    let config = Config {
+        max_batch_size: 100,
+        max_schedules_per_recipient: 10,
+        upgrade_timelock: 7 * 24 * 60 * 60,
+        fee_asset: token.address.clone(),
+    };
+    client.set_config(&admin, &config);
+
+    // Set fee to 0 (disabled)
+    client.set_fee_config(&admin, &0, &Address::generate(&env));
+
+    token_admin.mint(&sender, &1000);
+
+    env.ledger().with_mut(|li| li.timestamp = 0);
+
+    // Deposit with zero fees should not transfer any fee tokens
+    client.deposit(
+        &sender,
+        &Vec::from_array(&env, [token.address.clone()]),
+        &Vec::from_array(&env, [recipient.clone()]),
+        &Vec::from_array(&env, [100i128]),
+        &0,
+        &1000,
+        &0,
+        &0,
+        &Vec::from_array(&env, [String::from_str(&env, "")]),
+    );
+
+    // All tokens should be in the contract (no fees deducted)
+    assert_eq!(token.balance(&sender), 900); // 1000 - 100 deposited
+    assert_eq!(token.balance(&contract_id), 100); // Only the deposited amount
 }

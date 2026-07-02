@@ -13,7 +13,7 @@ import {
 } from "stellar-sdk";
 import Big from "big.js";
 
-import { PaymentInstruction } from "./types";
+import { PaymentInstruction, BatchJobNetwork } from "./types";
 import { getRecommendedFee } from "./fee-service";
 import { parseAsset } from "./utils";
 export { getBatchSummary } from "./summary";
@@ -25,12 +25,84 @@ export interface Batch {
 
 export interface CreateBatchesOptions {
   maxTransactionBytes?: number;
-  network?: "testnet" | "mainnet";
+  network?: BatchJobNetwork;
   server?: Horizon.Server;
   /** Provide a Soroban RPC server to enable simulation-based size estimation (#218) */
   sorobanServer?: SorobanRpc.Server;
   /** Public key of the source account (required for Soroban simulation) */
   sourcePublicKey?: string;
+}
+
+export class BatchMemoConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BatchMemoConflictError";
+  }
+}
+
+function getPaymentRowNumber(
+  payment: PaymentInstruction,
+  fallbackIndex: number,
+): number {
+  return (payment.rowIndex ?? fallbackIndex) + 1;
+}
+
+function getMemoSignature(payment: PaymentInstruction): string | undefined {
+  if (!payment.memo) {
+    return undefined;
+  }
+
+  return `${getEffectiveMemoType(payment)}:${payment.memo}`;
+}
+
+function formatMemoForError(payment: PaymentInstruction): string {
+  return `${getEffectiveMemoType(payment)} memo "${payment.memo}"`;
+}
+
+function getEffectiveMemoType(payment: PaymentInstruction): "text" | "id" {
+  return payment.memoType === "id" ? "id" : "text";
+}
+
+function validateConsistentBatchMemo(
+  payments: PaymentInstruction[],
+  batchStartIndex: number,
+  transactionIndex: number,
+): void {
+  const memoPayments = payments
+    .map((payment, offset) => ({
+      payment,
+      rowNumber: getPaymentRowNumber(payment, batchStartIndex + offset),
+      signature: getMemoSignature(payment),
+    }))
+    .filter((entry): entry is {
+      payment: PaymentInstruction;
+      rowNumber: number;
+      signature: string;
+    } => entry.signature !== undefined);
+
+  if (memoPayments.length <= 1) {
+    return;
+  }
+
+  const firstMemo = memoPayments[0];
+  const conflictingMemos = memoPayments.filter(
+    (entry) => entry.signature !== firstMemo.signature,
+  );
+
+  if (conflictingMemos.length === 0) {
+    return;
+  }
+
+  const rows = memoPayments
+    .map(
+      ({ payment, rowNumber }) =>
+        `Row ${rowNumber} has ${formatMemoForError(payment)}`,
+    )
+    .join("; ");
+
+  throw new BatchMemoConflictError(
+    `Conflicting memos in transaction batch ${transactionIndex + 1}: ${rows}. Stellar supports one memo per transaction; rows in the same transaction must use the same memo.`,
+  );
 }
 
 export const STELLAR_TRANSACTION_SIZE_LIMIT_BYTES = 100_000;
@@ -46,7 +118,7 @@ const SIZE_ESTIMATION_ACCOUNT = new Account(
  */
 export async function simulateBatchTransactionSize(
   payments: PaymentInstruction[],
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   sorobanServer: SorobanRpc.Server,
   sourcePublicKey: string,
   fee?: number,
@@ -104,7 +176,7 @@ function getTransactionByteLength(xdr: string | Buffer): number {
 
 export function estimateBatchTransactionSize(
   payments: PaymentInstruction[],
-  network: "testnet" | "mainnet" = "testnet",
+  network: BatchJobNetwork = "testnet",
   fee?: number,
 ): number {
   const networkPassphrase =
@@ -144,6 +216,7 @@ export async function createBatches(
 ): Promise<Batch[]> {
   const batches: Batch[] = [];
   let currentBatch: PaymentInstruction[] = [];
+  let currentBatchStartIndex = 0;
   let transactionIndex = 0;
   const maxTransactionBytes =
     options.maxTransactionBytes ?? DEFAULT_TRANSACTION_SIZE_HEADROOM_BYTES;
@@ -180,7 +253,12 @@ export async function createBatches(
     return estimateBatchTransactionSize(payments, network, dynamicFee);
   }
 
-  for (const instruction of instructions) {
+  for (
+    let instructionIndex = 0;
+    instructionIndex < instructions.length;
+    instructionIndex++
+  ) {
+    const instruction = instructions[instructionIndex];
     const candidateBatch = [...currentBatch, instruction];
     const exceedsOperationLimit =
       candidateBatch.length > maxOperationsPerTransaction;
@@ -191,6 +269,11 @@ export async function createBatches(
       (exceedsOperationLimit || exceedsSizeLimit) &&
       currentBatch.length > 0
     ) {
+      validateConsistentBatchMemo(
+        currentBatch,
+        currentBatchStartIndex,
+        transactionIndex,
+      );
       batches.push({
         transactionIndex,
         payments: currentBatch,
@@ -206,11 +289,20 @@ export async function createBatches(
       );
     }
 
+    if (currentBatch.length === 0) {
+      currentBatchStartIndex = instructionIndex;
+    }
+
     currentBatch.push(instruction);
   }
 
   // Add remaining payments as final batch
   if (currentBatch.length > 0) {
+    validateConsistentBatchMemo(
+      currentBatch,
+      currentBatchStartIndex,
+      transactionIndex,
+    );
     batches.push({
       transactionIndex,
       payments: currentBatch,

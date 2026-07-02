@@ -1,6 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import type { BatchJobNetwork } from "@/lib/stellar/types";
+import { dashboardMetricsKeys } from "@/lib/query-keys";
 
 export interface DashboardMetricsTimeSeriesPoint {
   date: string;
@@ -21,7 +23,7 @@ export interface DashboardMetrics {
 
 async function fetchDashboardMetrics(
   publicKey: string,
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   range?: "7d" | "30d" | "90d",
 ): Promise<DashboardMetrics> {
   const params = new URLSearchParams({ publicKey, network });
@@ -38,28 +40,31 @@ async function fetchDashboardMetrics(
 
 export function useDashboardMetrics(
   publicKey: string | null,
-  network: "testnet" | "mainnet",
+  network: BatchJobNetwork,
   range?: "7d" | "30d" | "90d",
 ) {
-  const queryKey = ["dashboard-metrics", publicKey, network, range] as const;
+  const queryKey = dashboardMetricsKeys.detail(publicKey, network, range);
 
-  const { data: metrics, isLoading, error } = useQuery({
+  const { data: metrics, isLoading, error, refetch } = useQuery({
     queryKey,
     queryFn: () => fetchDashboardMetrics(publicKey!, network, range),
     enabled: !!publicKey,
     staleTime: 30 * 1000,
   });
 
-  const fallbackMetrics: DashboardMetrics = {
-    totalPayments: 0,
-    totalAmountSent: "0 XLM",
-    successRate: "0.0%",
-    activeBatches: 0,
-  };
+  const showZeroDefaults = !publicKey;
 
   return {
-    metrics: metrics ?? fallbackMetrics,
+    metrics: showZeroDefaults
+      ? {
+          totalPayments: 0,
+          totalAmountSent: "0 XLM",
+          successRate: "0.0%",
+          activeBatches: 0,
+        }
+      : (metrics ?? null),
     loading: isLoading,
     error: error ? (error instanceof Error ? error.message : "Unknown error") : null,
+    refetch,
   };
 }

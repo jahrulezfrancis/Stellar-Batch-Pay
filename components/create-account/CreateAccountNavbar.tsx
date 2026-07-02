@@ -68,6 +68,8 @@ export const CreateAccountNavbar = () => {
             onClick={() => setMobileOpen((v) => !v)}
             className="md:hidden p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
             aria-label="Toggle menu"
+            aria-expanded={mobileOpen}
+            aria-controls="mobile-menu"
           >
             {mobileOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
@@ -76,7 +78,7 @@ export const CreateAccountNavbar = () => {
 
       {/* Mobile Dropdown */}
       {mobileOpen && (
-        <div className="md:hidden bg-[#0f1929] border-t border-white/5 px-4 pb-5 pt-3 flex flex-col gap-1">
+        <div id="mobile-menu" className="md:hidden bg-[#0f1929] border-t border-white/5 px-4 pb-5 pt-3 flex flex-col gap-1">
           {navLinks.map(({ label, href }) => (
             <Link
               key={label}

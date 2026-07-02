@@ -14,9 +14,9 @@ import { t } from "@/lib/i18n";
 type Range = "7d" | "30d" | "90d";
 
 /**
- * Analytics dashboard (#359). Reuses the existing OverviewMetrics + the
+ * Analytics dashboard. Reuses the existing OverviewMetrics + the
  * extended PaymentVolumeChart, and the `/api/dashboard-metrics?range=…`
- * endpoint that now returns daily-bucketed XLM volume.
+ * endpoint that returns daily-bucketed XLM volume.
  *
  * Wallet not connected: render a friendly empty state pointing at settings
  * so the chart never shows misleading mock data on a public route.
@@ -26,7 +26,7 @@ export default function AnalyticsPage() {
   const [range, setRange] = useState<Range>("7d");
 
   const effectiveNetwork = network === "mainnet" ? "mainnet" : "testnet";
-  const { metrics, loading } = useDashboardMetrics(
+  const { metrics, loading, error, refetch } = useDashboardMetrics(
     publicKey,
     effectiveNetwork,
     range,
@@ -61,7 +61,7 @@ export default function AnalyticsPage() {
         <DashboardWalletEmpty />
       ) : (
         <>
-          <OverviewMetrics metrics={metrics} loading={loading} />
+          <OverviewMetrics metrics={metrics} loading={loading} error={error} onRetry={refetch} />
 
           <PaymentVolumeChart
             initialRange={range}

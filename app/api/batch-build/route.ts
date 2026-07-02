@@ -21,6 +21,7 @@ import { safeJsonResponse } from "@/lib/safe-json";
 import { horizonUrl } from "@/lib/stellar/network-config";
 
 import {
+  BatchMemoConflictError,
   createBatches,
   estimateBatchTransactionSize,
   STELLAR_TRANSACTION_SIZE_LIMIT_BYTES,
@@ -29,10 +30,15 @@ import { parseAsset } from "@/lib/stellar/utils";
 import {
   validatePaymentInstruction,
   validatePaymentInstructions,
+  validateMemo,
   buildBalancesMap,
   validateBalances,
 } from "@/lib/stellar/validator";
-import type { PaymentInstruction, HorizonBalance } from "@/lib/stellar/types";
+import type {
+  PaymentInstruction,
+  HorizonBalance,
+  BatchJobNetwork,
+} from "@/lib/stellar/types";
 import { getRecommendedFee } from "@/lib/stellar/fee-service";
 import { MAX_UPLOAD_ROWS } from "@/lib/stellar/parser";
 import { truncateMemoToBytes } from "@/lib/stellar/utils";
@@ -40,7 +46,7 @@ import { applyRateLimit, setRateLimitHeaders } from "@/lib/api-rate-limit";
 
 interface RequestBody {
   payments: PaymentInstruction[];
-  network: "testnet" | "mainnet";
+  network: BatchJobNetwork;
   publicKey: string;
 }
 
@@ -149,8 +155,13 @@ export async function POST(request: NextRequest) {
       network === "testnet" ? Networks.TESTNET : Networks.PUBLIC;
 
     const xdrs: string[] = [];
-    // #396: collect indices of rows skipped due to per-row validation failure
+    // #396: collect indices of rows skipped due to per-row validation failure.
+    // #510: indices are the original 0-based positions in the request `payments`
+    // array (mirrored from the parser's `rowIndex`), so duplicate rows resolve
+    // to distinct positions instead of collapsing onto the first match.
     const omittedRows: number[] = [];
+    // #510: map each omitted index to its validation reason for actionable 422s.
+    const omittedReasons: Record<number, string> = {};
 
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
@@ -162,9 +173,21 @@ export async function POST(request: NextRequest) {
       let memo: any;
       if (firstMemoPayment?.memo) {
         const memoType = firstMemoPayment.memoType ?? 'text';
-        memo = memoType === 'id'
-          ? Memo.id(firstMemoPayment.memo)
-          : Memo.text(truncateMemoToBytes(firstMemoPayment.memo));
+        if (memoType === 'id') {
+          const memoValidation = validateMemo(firstMemoPayment.memo, 'id');
+          if (!memoValidation.valid) {
+            return setRateLimitHeaders(
+              NextResponse.json(
+                { error: `Invalid memo ID at batch ${i}: ${memoValidation.error}` },
+                { status: 400 },
+              ),
+              rate,
+            );
+          }
+          memo = Memo.id(firstMemoPayment.memo);
+        } else {
+          memo = Memo.text(truncateMemoToBytes(firstMemoPayment.memo));
+        }
       } else {
         const memoId = `bp-${Date.now()}-${i}`;
         memo = Memo.text(truncateMemoToBytes(memoId));
@@ -175,12 +198,21 @@ export async function POST(request: NextRequest) {
         networkPassphrase,
       }).addMemo(memo);
 
-      for (const payment of batch.payments) {
+      for (let pIdx = 0; pIdx < batch.payments.length; pIdx++) {
+        const payment = batch.payments[pIdx];
         const pv = validatePaymentInstruction(payment);
         if (!pv.valid) {
-          // #396: track omitted row indices instead of silently skipping
-          const originalIndex = payments.indexOf(payment);
+          // #510: prefer the parser-assigned rowIndex so duplicate rows (same
+          // address/amount/asset) map to the row that actually failed. indexOf
+          // returns the first value-equal match, misreporting which CSV line was
+          // skipped. Fall back to indexOf only for legacy payloads built without
+          // a rowIndex.
+          const originalIndex =
+            typeof payment.rowIndex === "number"
+              ? payment.rowIndex
+              : payments.indexOf(payment);
           omittedRows.push(originalIndex);
+          omittedReasons[originalIndex] = pv.error ?? "Failed per-row validation";
           continue;
         }
 
@@ -213,7 +245,10 @@ export async function POST(request: NextRequest) {
         NextResponse.json(
           {
             error: "Some payment rows failed per-row validation and were omitted.",
+            // #510: 0-based original row indices; duplicates resolve distinctly.
             omittedRows,
+            // #510: per-index reason so callers can surface exactly what to fix.
+            omittedReasons,
           },
           { status: 422 },
         ),
@@ -232,6 +267,13 @@ export async function POST(request: NextRequest) {
     }), rate);
   } catch (error) {
     console.error("Batch build error:", error);
+    if (error instanceof BatchMemoConflictError) {
+      return setRateLimitHeaders(safeJsonResponse(
+        { error: error.message },
+        { status: 400 },
+      ), rate);
+    }
+
     return setRateLimitHeaders(safeJsonResponse(
       {
         error:

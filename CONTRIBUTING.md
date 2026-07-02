@@ -6,6 +6,7 @@ This guide covers the local setup, architecture, testing workflow, and pull requ
 
 - Node.js 20 or newer
 - npm 10 or newer
+- Bun 1.2.4
 - Rust toolchain with `wasm32-unknown-unknown`
 - Soroban CLI
 
@@ -138,3 +139,7 @@ When opening an issue or PR, include:
 - actual behavior
 - reproduction steps
 - logs, screenshots, or failing test output when available
+
+## Toasts
+
+To ensure a consistent user experience, we have standardized on Sonner for all toast notifications. Please use the wrapper provided in `lib/toast.ts` instead of importing `sonner` or `@/components/ui/use-toast` directly. An ESLint rule is in place to enforce this.
