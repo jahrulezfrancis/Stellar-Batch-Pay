@@ -17,7 +17,7 @@ interface RouteParams {
   params: Promise<{ jobId: string }>;
 }
 
-const POLL_INTERVAL_MS = 1000;
+const POLL_INTERVAL_MS = Number(process.env.BATCH_EVENTS_POLL_INTERVAL_MS ?? "1000");
 
 function serializeJobEvent(job: ReturnType<typeof getJob>): string {
   if (!job) return "";
@@ -59,18 +59,29 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   const encoder = new TextEncoder();
   let intervalId: ReturnType<typeof setInterval> | null = null;
+  let closed = false;
 
   const stream = new ReadableStream({
     start(controller) {
+      const closeStream = () => {
+        if (intervalId) clearInterval(intervalId);
+        intervalId = null;
+        if (!closed) {
+          closed = true;
+          controller.close();
+        }
+      };
+
       const tick = () => {
         try {
+          if (closed) return;
+
           const job = getJob(jobId, publicKey);
 
           if (!job) {
             const errEvent = `data: ${JSON.stringify({ error: `Job not found: ${jobId}` })}\n\n`;
             controller.enqueue(encoder.encode(errEvent));
-            if (intervalId) clearInterval(intervalId);
-            controller.close();
+            closeStream();
             return;
           }
 
@@ -78,21 +89,20 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           controller.enqueue(encoder.encode(event));
 
           if (job.status === "completed" || job.status === "failed") {
-            if (intervalId) clearInterval(intervalId);
-            controller.close();
+            closeStream();
           }
         } catch {
-          if (intervalId) clearInterval(intervalId);
-          controller.close();
+          closeStream();
         }
       };
 
       tick();
-      intervalId = setInterval(tick, POLL_INTERVAL_MS);
+      if (!closed) {
+        intervalId = setInterval(tick, POLL_INTERVAL_MS);
+      }
 
       request.signal.addEventListener("abort", () => {
-        if (intervalId) clearInterval(intervalId);
-        controller.close();
+        closeStream();
       });
     },
     cancel() {
